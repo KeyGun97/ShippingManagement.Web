@@ -1,0 +1,79 @@
+@model List<ShippingManagement.Web.Models.Port>
+@{
+    ViewData["Title"] = "Port Assignments";
+    var countries = (List<ShippingManagement.Web.Models.CountryItem>)ViewBag.Countries;
+    var users = (List<ShippingManagement.Web.Models.User>)ViewBag.Users;
+    int? countryId = ViewBag.CountryId;
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0"><i class="bi bi-person-check"></i> Port Assignments</h4>
+
+    <!-- V2 "Auto Data" button: distributes imported rows to users by assigned ports -->
+    <form asp-action="AutoData" method="post" class="d-flex gap-2 align-items-center">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="countryId" value="@countryId" />
+        <label class="small text-muted mb-0">Import date:</label>
+        <input type="date" name="importDate" value="@DateTime.Today.ToString("yyyy-MM-dd")" class="form-control form-control-sm" style="width:160px" />
+        <button class="btn btn-sm btn-warning fw-semibold"
+                onclick="return confirm('Run Auto Data?\n\n• Unmatched rows are IMO-matched by vessel name\n• Rows are distributed to users by their port assignments');">
+            <i class="bi bi-lightning-charge"></i> Auto Data
+        </button>
+    </form>
+</div>
+
+<div class="alert alert-light border small mb-3">
+    Each port can be assigned to <strong>one user only</strong> — the assigned user is shown beside the port,
+    so the same port cannot be assigned twice (V2 rule). After import, click <strong>Auto Data</strong> and each
+    user will see only the rows for their own ports on the <em>Import Data</em> page.
+</div>
+
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>Ports (@Model.Count)</span>
+        <form method="get" class="d-flex gap-2">
+            <select name="countryId" class="form-select form-select-sm" onchange="this.form.submit()">
+                <option value="">All countries</option>
+                @foreach (var c in countries) { <option value="@c.CountryID" selected="@(countryId == c.CountryID)">@c.CountryName</option> }
+            </select>
+        </form>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0">
+            <thead class="table-light">
+                <tr><th>Port</th><th>Country</th><th>Sources</th><th>Currently Assigned To</th><th style="width:340px">Assign / Re-assign</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var p in Model)
+                {
+                    <tr>
+                        <td class="fw-semibold">@p.PortName</td>
+                        <td>@p.CountryName</td>
+                        <td><span class="badge bg-secondary">@p.SourceCount URL(s)</span></td>
+                        <td>
+                            @if (p.AssignedUserName is not null)
+                            { <span class="badge bg-success"><i class="bi bi-person-fill"></i> @p.AssignedUserName</span> }
+                            else
+                            { <span class="badge bg-light text-dark border">Unassigned</span> }
+                        </td>
+                        <td>
+                            <form asp-action="Assign" method="post" class="d-flex gap-2">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="portId" value="@p.PortID" />
+                                <input type="hidden" name="countryId" value="@countryId" />
+                                <select name="userId" class="form-select form-select-sm">
+                                    <option value="0">— unassign —</option>
+                                    @foreach (var u in users)
+                                    { <option value="@u.UserID" selected="@(p.AssignedUserID == u.UserID)">@u.FullName (@u.Username)</option> }
+                                </select>
+                                <button class="btn btn-sm btn-primary">Save</button>
+                            </form>
+                        </td>
+                    </tr>
+                }
+                @if (Model.Count == 0)
+                { <tr><td colspan="5" class="text-center text-muted py-3">No ports found. Create ports in <a asp-controller="PortsSetup" asp-action="Index">Ports Setup</a> first.</td></tr> }
+            </tbody>
+        </table>
+    </div>
+</div>

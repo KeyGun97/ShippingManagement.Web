@@ -1,0 +1,80 @@
+@model List<Company>
+@{ ViewData["Title"] = "Companies"; var returnTo = Context.Request.Path + Context.Request.QueryString; }
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h3><i class="bi bi-buildings me-2"></i>Company Registration & Fleet Tracking</h3>
+    <div>
+        <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#coModal"><i class="bi bi-plus-lg"></i> New Company</button>
+        <a class="btn btn-outline-primary" asp-action="ExportExcel" asp-route-q="@ViewBag.Q" asp-route-regularOnly="@ViewBag.RegularOnly">
+            <i class="bi bi-file-earmark-excel"></i> Export Fleet Report
+        </a>
+    </div>
+</div>
+
+<form method="get" class="row g-2 mb-3 no-print">
+    <div class="col-md-4"><input name="q" value="@ViewBag.Q" class="form-control" placeholder="Search company name…" /></div>
+    <div class="col-md-3 form-check d-flex align-items-center ps-4">
+        <input class="form-check-input me-1" type="checkbox" name="regularOnly" value="true" checked="@((bool)ViewBag.RegularOnly)" id="ro" />
+        <label class="form-check-label" for="ro">Regular customers only</label>
+    </div>
+    <div class="col-md-2"><button class="btn btn-primary w-100">Search</button></div>
+</form>
+
+<div class="card shadow-sm"><div class="card-body table-responsive">
+<table class="table table-sm table-hover">
+    <thead><tr>
+        <th>Company Name</th><th>Address</th><th>Country</th><th>General Email</th>
+        <th>Website</th><th>Telephone</th><th class="text-center">Fleet Size</th><th>Status</th><th></th>
+    </tr></thead>
+    <tbody>
+    @foreach (var c in Model)
+    {
+        <tr class="@(c.Status == "Regular" ? "regular-customer" : "")">
+            <td><a asp-action="Details" asp-route-id="@c.CompanyID">@c.CompanyName</a></td>
+            <td>@c.Address</td><td>@c.Country</td><td>@c.GeneralEmail</td>
+            <td>@c.Website</td><td>@c.Telephone</td>
+            <td class="text-center"><span class="badge bg-primary">@c.FleetCount</span></td>
+            <td>
+                @if (c.Status == "Regular") { <span class="badge bg-info text-dark"><i class="bi bi-star-fill"></i> Regular</span> }
+                else { <span class="badge bg-secondary">Non-Regular</span> }
+            </td>
+            <td class="text-nowrap">
+                <form method="post" asp-action="SetStatus" class="d-inline">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="id" value="@c.CompanyID" />
+                    <input type="hidden" name="returnTo" value="@returnTo" />
+                    <input type="hidden" name="status" value="@(c.Status == "Regular" ? "Non-Regular" : "Regular")" />
+                    <button class="btn btn-sm @(c.Status == "Regular" ? "btn-outline-secondary" : "btn-outline-info")"
+                            title="Toggle Regular / Non-Regular customer status">
+                        @(c.Status == "Regular" ? "Set Non-Regular" : "Set Regular")
+                    </button>
+                </form>
+            </td>
+        </tr>
+    }
+    @if (!Model.Any()) { <tr><td colspan="9" class="text-center text-muted py-3">No companies found.</td></tr> }
+    </tbody>
+</table>
+</div></div>
+<p class="text-muted small mt-2">Fleet size updates automatically as vessels are added, removed, or reassigned. Regular-customer rows are shown in blue throughout the system.</p>
+
+<!-- New company modal -->
+<div class="modal fade" id="coModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+<form method="post" asp-action="Save">
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="returnTo" value="@returnTo" />
+    <div class="modal-header"><h5 class="modal-title">New Company</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body row g-2">
+        <div class="col-12"><label class="form-label">Company Name *</label><input name="CompanyName" class="form-control" required /></div>
+        <div class="col-12"><label class="form-label">Address</label><input name="Address" class="form-control" /></div>
+        <div class="col-6"><label class="form-label">Country</label><input name="Country" class="form-control" /></div>
+        <div class="col-6"><label class="form-label">Telephone</label><input name="Telephone" class="form-control" /></div>
+        <div class="col-6"><label class="form-label">General Email</label><input name="GeneralEmail" class="form-control" /></div>
+        <div class="col-6"><label class="form-label">Website</label><input name="Website" class="form-control" /></div>
+        <div class="col-6">
+            <label class="form-label">Status</label>
+            <select name="Status" class="form-select"><option>Non-Regular</option><option>Regular</option></select>
+        </div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-success">Save</button></div>
+</form>
+</div></div></div>

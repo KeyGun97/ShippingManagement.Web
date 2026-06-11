@@ -1,0 +1,17 @@
+:root { --navy-dark:#0d2438; --navy-mid:#1b3a5c; --accent:#22a6f2; }
+body { background:#f2f5f8; font-family:'Segoe UI',system-ui,sans-serif; }
+.topbar { background:var(--navy-mid); }
+.sidebar { width:230px; min-height:calc(100vh - 56px); background:var(--navy-dark); }
+.sidebar .nav-link { color:#cfd9e3; border-radius:6px; padding:.55rem .8rem; margin-bottom:2px; }
+.sidebar .nav-link i { margin-right:.5rem; }
+.sidebar .nav-link:hover { background:rgba(255,255,255,.08); color:#fff; }
+.sidebar .nav-link.active { background:var(--accent); color:#fff; }
+.content { max-width:1500px; }
+.tile { border:0; border-radius:12px; color:#fff; }
+.tile .display-6 { font-weight:700; }
+.table-sm td, .table-sm th { vertical-align:middle; }
+tr.regular-customer td { background:#cfe2ff !important; }   /* V2: regular-customer rows highlighted */
+tr.useless-row td { background:#f8d7da !important; text-decoration:line-through; color:#842029; }
+.login-bg { min-height:100vh; background:linear-gradient(135deg,var(--navy-dark),var(--navy-mid)); display:flex; align-items:center; justify-content:center; }
+.login-card { width:380px; border-radius:14px; }
+@media print { .sidebar,.topbar,.no-print { display:none !important; } .content { padding:0 !important; } }

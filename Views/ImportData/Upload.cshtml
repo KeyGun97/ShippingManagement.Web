@@ -1,0 +1,47 @@
+@{
+    ViewData["Title"] = "Upload Scraped Rows";
+    var ports = (List<ShippingManagement.Web.Models.Port>)ViewBag.Ports;
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0"><i class="bi bi-upload"></i> Upload Scraped Rows <span class="text-muted fs-6">(Admin)</span></h4>
+    <a asp-action="Index" class="btn btn-sm btn-outline-dark">Back to Import Data</a>
+</div>
+
+<div class="alert alert-light border small">
+    Paste rows copied from a tracking site or exported CSV — one vessel per line, columns separated by <strong>Tab</strong> or <strong>comma</strong>:<br />
+    <code>VesselName, IMO (optional), ArrivalDate, DepartureTime, Origin, Status</code><br />
+    If the IMO column is empty, the system auto-detects it from already-registered vessels by name (per spec).
+    After uploading, run <strong>Auto Data</strong> to distribute the rows to users by their port assignments.
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <form asp-action="Upload" method="post">
+            @Html.AntiForgeryToken()
+            <div class="row g-3 mb-3">
+                <div class="col-md-4">
+                    <label class="form-label small mb-0">Port</label>
+                    <select name="portId" class="form-select form-select-sm" required>
+                        <option value="">— select port —</option>
+                        @foreach (var p in ports) { <option value="@p.PortID">@p.PortName (@p.CountryName)</option> }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small mb-0">Import date</label>
+                    <input type="date" name="importDate" value="@DateTime.Today.ToString("yyyy-MM-dd")" class="form-control form-control-sm" required />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small mb-0">Data source label</label>
+                    <input name="dataSource" value="Manual" class="form-control form-control-sm" placeholder="e.g. MyShipTracking" />
+                </div>
+            </div>
+            <div class="mb-3">
+                <label class="form-label small mb-0">Rows</label>
+                <textarea name="pastedRows" class="form-control font-monospace" rows="14" required
+                          placeholder="MAERSK SELETAR&#9;9315276&#9;2026-06-11 04:30&#9;&#9;Singapore&#9;Moored&#10;EVER GIVEN&#9;&#9;2026-06-11 06:10&#9;&#9;Suez&#9;Expected"></textarea>
+            </div>
+            <button class="btn btn-primary"><i class="bi bi-cloud-arrow-up"></i> Import Rows</button>
+        </form>
+    </div>
+</div>

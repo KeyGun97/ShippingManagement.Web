@@ -1,0 +1,45 @@
+@model List<ShippingManagement.Web.Models.ArrivalLog>
+@{
+    Layout = null;
+    var d = (DateTime)ViewBag.Date;
+    string? country = ViewBag.Country;
+}
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Daily Report @d.ToString("yyyy-MM-dd")</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; margin: 24px; color: #111; }
+        h2 { margin: 0 0 2px; } .sub { color: #555; margin-bottom: 14px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #999; padding: 3px 5px; text-align: left; vertical-align: top; }
+        th { background: #1b2a4a; color: #fff; }
+        tr.regular td { background: #cfe2ff; }
+        @@media print { .noprint { display: none; } }
+    </style>
+</head>
+<body onload="window.print()">
+    <div class="noprint" style="margin-bottom:10px">
+        <button onclick="window.print()">Print / Save as PDF</button>
+        <button onclick="window.close()">Close</button>
+    </div>
+    <h2>Daily Arrival Report</h2>
+    <div class="sub">@d.ToString("dddd, dd MMMM yyyy") @(string.IsNullOrEmpty(country) ? "— All countries" : $"— {country}") &middot; @Model.Count arrival(s) &middot; Generated @DateTime.Now.ToString("yyyy-MM-dd HH:mm")</div>
+    <table>
+        <thead>
+            <tr><th>IMO</th><th>Vessel</th><th>Type</th><th>Port</th><th>Country</th><th>Company</th><th>Confirm Email</th><th>Purchase Email</th><th>Catering Email</th></tr>
+        </thead>
+        <tbody>
+            @foreach (var a in Model)
+            {
+                <tr class="@(a.CustomerStatus == "Regular" ? "regular" : "")">
+                    <td>@a.IMO_Number</td><td>@a.VesselName</td><td>@a.VesselType</td>
+                    <td>@a.PortName</td><td>@a.Country</td><td>@a.CompanyName</td>
+                    <td>@a.ConfirmEmail</td><td>@a.PurchaseEmail</td><td>@a.CateringEmail</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</body>
+</html>

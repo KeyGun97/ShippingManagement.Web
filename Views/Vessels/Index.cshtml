@@ -1,0 +1,76 @@
+@model List<Vessel>
+@{ ViewData["Title"] = "Vessels"; }
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h3><i class="bi bi-water me-2"></i>Vessel Registration</h3>
+    <div>
+        <a class="btn btn-success" asp-action="Register"><i class="bi bi-plus-lg"></i> New Vessel</a>
+        <a class="btn btn-outline-primary" asp-action="ExportExcel"
+           asp-route-q="@ViewBag.Q" asp-route-companyId="@ViewBag.CompanyId" asp-route-typeId="@ViewBag.TypeId"
+           asp-route-country="@ViewBag.Country" asp-route-regularOnly="@ViewBag.RegularOnly">
+            <i class="bi bi-file-earmark-excel"></i> Export
+        </a>
+    </div>
+</div>
+
+<form method="get" class="row g-2 mb-3 no-print">
+    <div class="col-md-3"><input name="q" value="@ViewBag.Q" class="form-control" placeholder="Vessel name or IMO #" /></div>
+    <div class="col-md-2">
+        <select name="companyId" class="form-select">
+            <option value="">All Companies</option>
+            @foreach (Company c in ViewBag.Companies)
+            { <option value="@c.CompanyID" selected="@(ViewBag.CompanyId == c.CompanyID)">@c.CompanyName</option> }
+        </select>
+    </div>
+    <div class="col-md-2">
+        <select name="typeId" class="form-select">
+            <option value="">All Types</option>
+            @foreach (VesselType t in ViewBag.Types)
+            { <option value="@t.TypeID" selected="@(ViewBag.TypeId == t.TypeID)">@t.TypeName</option> }
+        </select>
+    </div>
+    <div class="col-md-2">
+        <select name="country" class="form-select">
+            <option value="">All Countries</option>
+            @foreach (CountryItem c in ViewBag.Countries)
+            { <option selected="@(ViewBag.Country == c.CountryName)">@c.CountryName</option> }
+        </select>
+    </div>
+    <div class="col-md-2 form-check d-flex align-items-center ps-4">
+        <input class="form-check-input me-1" type="checkbox" name="regularOnly" value="true" checked="@((bool)ViewBag.RegularOnly)" id="ro" />
+        <label class="form-check-label" for="ro">Regular customers only</label>
+    </div>
+    <div class="col-md-1"><button class="btn btn-primary w-100">Search</button></div>
+</form>
+
+<div class="card shadow-sm"><div class="card-body table-responsive">
+<table class="table table-sm table-hover">
+    <thead><tr>
+        <th>S.No</th><th>Vessel Name</th><th>IMO #</th><th>Type</th><th>Call Sign</th>
+        <th>Company</th><th>Port</th><th>Country</th><th>Terms</th><th>Status</th><th></th>
+    </tr></thead>
+    <tbody>
+    @{ int i = 1; }
+    @foreach (var v in Model)
+    {
+        <tr class="@(v.CustomerStatus == "Regular" ? "regular-customer" : "")">
+            <td>@(i++)</td>
+            <td>@v.VesselName</td>
+            <td>@v.IMO_Number</td>
+            <td>@v.VesselType</td>
+            <td>@v.CallSign</td>
+            <td>@v.CompanyName @(v.CustomerStatus == "Regular" ? Html.Raw("<i class='bi bi-star-fill text-primary'></i>") : Html.Raw(""))</td>
+            <td>@v.Port</td>
+            <td>@v.Country</td>
+            <td>@v.Terms</td>
+            <td><span class="badge bg-secondary">@v.Status</span></td>
+            <td class="text-nowrap">
+                <a class="btn btn-sm btn-outline-primary" asp-action="Register" asp-route-imo="@v.IMO_Number"><i class="bi bi-pencil"></i></a>
+                <a class="btn btn-sm btn-outline-secondary" asp-controller="MasterData" asp-action="History" asp-route-imo="@v.IMO_Number" title="IMO history"><i class="bi bi-clock-history"></i></a>
+            </td>
+        </tr>
+    }
+    @if (!Model.Any()) { <tr><td colspan="11" class="text-center text-muted py-3">No vessels found.</td></tr> }
+    </tbody>
+</table>
+</div></div>
+<p class="text-muted small mt-2"><span class="badge" style="background:#cfe2ff;color:#000">blue rows</span> = vessels of Regular Customers.</p>

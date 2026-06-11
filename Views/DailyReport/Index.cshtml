@@ -1,0 +1,105 @@
+@model List<ShippingManagement.Web.Models.ArrivalLog>
+@inject Microsoft.AspNetCore.Antiforgery.IAntiforgery Af
+@{
+    ViewData["Title"] = "Daily Report";
+    var d = (DateTime)ViewBag.Date;
+    string? country = ViewBag.Country;
+    bool show = ViewBag.Show;
+    var countries = (List<ShippingManagement.Web.Models.CountryItem>)ViewBag.Countries;
+    var tokens = Af.GetAndStoreTokens(Context);
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0"><i class="bi bi-calendar-day"></i> Daily Report <span class="text-muted fs-6">(view-only)</span></h4>
+    @if (show)
+    {
+        <div class="btn-group">
+            <a class="btn btn-sm btn-success" asp-action="ExportSingle" asp-route-date="@d.ToString("yyyy-MM-dd")" asp-route-country="@country">
+                <i class="bi bi-file-earmark-excel"></i> Excel (single sheet)</a>
+            <a class="btn btn-sm btn-outline-success" asp-action="ExportTwoSheets" asp-route-date="@d.ToString("yyyy-MM-dd")" asp-route-country="@country">
+                Excel (Asia / Non-Asia)</a>
+            <a class="btn btn-sm btn-outline-secondary" asp-action="ExportCsv" asp-route-date="@d.ToString("yyyy-MM-dd")" asp-route-country="@country">CSV</a>
+            <a class="btn btn-sm btn-outline-danger" asp-action="Print" asp-route-date="@d.ToString("yyyy-MM-dd")" asp-route-country="@country" target="_blank">
+                <i class="bi bi-printer"></i> PDF / Print</a>
+        </div>
+    }
+</div>
+
+<form method="get" class="row g-2 align-items-end mb-3">
+    <div class="col-auto">
+        <label class="form-label small mb-0">Date <em class="text-muted">(default: today)</em></label>
+        <input type="date" name="date" value="@d.ToString("yyyy-MM-dd")" class="form-control form-control-sm" />
+    </div>
+    <div class="col-auto">
+        <label class="form-label small mb-0">Country</label>
+        <select name="country" class="form-select form-select-sm">
+            <option value="">All countries</option>
+            @foreach (var c in countries) { <option selected="@(country == c.CountryName)">@c.CountryName</option> }
+        </select>
+    </div>
+    <input type="hidden" name="show" value="true" />
+    <div class="col-auto"><button class="btn btn-sm btn-primary"><i class="bi bi-search"></i> Show Report</button></div>
+</form>
+
+@if (show)
+{
+    <div class="card">
+        <div class="card-header d-flex justify-content-between">
+            <span>@d.ToString("dddd, dd MMMM yyyy") @(string.IsNullOrEmpty(country) ? "" : $"— {country}") — @Model.Count arrival(s)</span>
+            <span class="small text-muted">Blue = regular customer &middot; "Tag" hides the row from exports</span>
+        </div>
+        <div class="table-responsive" style="max-height:65vh">
+            <table class="table table-sm table-hover align-middle mb-0">
+                <thead class="table-light sticky-top">
+                    <tr>
+                        <th>IMO</th><th>Vessel</th><th>Type</th><th>Port</th><th>Country</th>
+                        <th>Company</th><th>Confirm Email</th><th>Purchase Email</th><th>Catering Email</th><th>Tag</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var a in Model)
+                    {
+                        <tr id="log-@a.LogID" class="@(a.CustomerStatus == "Regular" ? "regular-customer" : "") @(a.IsTagged ? "opacity-50" : "")">
+                            <td><a asp-controller="MasterData" asp-action="History" asp-route-imo="@a.IMO_Number">@a.IMO_Number</a></td>
+                            <td class="fw-semibold">@a.VesselName</td>
+                            <td>@a.VesselType</td>
+                            <td>@a.PortName</td>
+                            <td>@a.Country</td>
+                            <td>@a.CompanyName @(a.CustomerStatus == "Regular" ? Html.Raw("<span class='badge bg-primary'>R</span>") : Html.Raw(""))</td>
+                            <td class="small">@a.ConfirmEmail</td>
+                            <td class="small">@a.PurchaseEmail</td>
+                            <td class="small">@a.CateringEmail</td>
+                            <td>
+                                <button class="btn btn-sm py-0 tag-btn @(a.IsTagged ? "btn-dark" : "btn-outline-dark")"
+                                        data-id="@a.LogID" data-tagged="@(a.IsTagged ? "true" : "false")">
+                                    @(a.IsTagged ? "Tagged" : "Tag")
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                    @if (Model.Count == 0)
+                    { <tr><td colspan="10" class="text-center text-muted py-4">No arrivals saved for this date/country.</td></tr> }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+else
+{
+    <div class="alert alert-info">Select a date (defaults to today) and optionally a country, then click <strong>Show Report</strong>.</div>
+}
+
+@section Scripts {
+<script>
+    const af = '@tokens.RequestToken';
+    $(document).on('click', '.tag-btn', function () {
+        const btn = $(this), id = btn.data('id'), nowTagged = btn.attr('data-tagged') !== 'true';
+        $.post('@Url.Action("ToggleTag")', { logId: id, tagged: nowTagged, __RequestVerificationToken: af })
+            .done(function () {
+                btn.attr('data-tagged', nowTagged).toggleClass('btn-dark', nowTagged).toggleClass('btn-outline-dark', !nowTagged)
+                   .text(nowTagged ? 'Tagged' : 'Tag');
+                $('#log-' + id).toggleClass('opacity-50', nowTagged);
+            });
+    });
+</script>
+}

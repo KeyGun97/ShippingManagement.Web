@@ -1,0 +1,133 @@
+@model List<ShippingManagement.Web.Models.ScrapedRecord>
+@inject Microsoft.AspNetCore.Antiforgery.IAntiforgery Af
+@{
+    ViewData["Title"] = "Import Data";
+    var d = (DateTime)ViewBag.Date;
+    string? country = ViewBag.Country;
+    bool showUseless = ViewBag.ShowUseless, applyFilter = ViewBag.ApplyFilter;
+    var countries = (List<ShippingManagement.Web.Models.CountryItem>)ViewBag.Countries;
+    var importDates = (List<DateTime>)ViewBag.ImportDates;
+    bool isAdmin = Context.Session.GetString("Role") == "Admin";
+    var tokens = Af.GetAndStoreTokens(Context);
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0"><i class="bi bi-cloud-download"></i> Import Data <span class="text-muted fs-6">@(isAdmin ? "(admin — all rows)" : "(your assigned ports only)")</span></h4>
+    <div class="d-flex gap-2">
+        @if (isAdmin)
+        {
+            <a asp-action="Upload" class="btn btn-sm btn-outline-primary"><i class="bi bi-upload"></i> Upload Rows</a>
+            <form asp-controller="PortAssignments" asp-action="AutoData" method="post" class="d-inline">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="importDate" value="@d.ToString("yyyy-MM-dd")" />
+                <button class="btn btn-sm btn-warning"><i class="bi bi-lightning-charge"></i> Auto Data (@d.ToString("dd MMM"))</button>
+            </form>
+        }
+        <form asp-action="SaveFiltered" method="post" class="d-inline"
+              onsubmit="return confirm('Save all non-useless, IMO-matched rows of @d.ToString("yyyy-MM-dd") into the date-wise history?');">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="date" value="@d.ToString("yyyy-MM-dd")" />
+            <button class="btn btn-sm btn-success"><i class="bi bi-save"></i> Save Filtered to History</button>
+        </form>
+    </div>
+</div>
+
+<form method="get" class="row g-2 align-items-end mb-3">
+    <div class="col-auto">
+        <label class="form-label small mb-0">Import date</label>
+        <input type="date" name="date" value="@d.ToString("yyyy-MM-dd")" class="form-control form-control-sm" list="dates" />
+        <datalist id="dates">@foreach (var id_ in importDates) { <option value="@id_.ToString("yyyy-MM-dd")"></option> }</datalist>
+    </div>
+    <div class="col-auto">
+        <label class="form-label small mb-0">Country</label>
+        <select name="country" class="form-select form-select-sm">
+            <option value="">All</option>
+            @foreach (var c in countries) { <option selected="@(country == c.CountryName)">@c.CountryName</option> }
+        </select>
+    </div>
+    <div class="col-auto form-check ms-2">
+        <input type="checkbox" class="form-check-input" name="applyFilter" value="true" id="af" checked="@applyFilter" />
+        <label class="form-check-label small" for="af">Apply filter <em class="text-muted">(auto-excludes useless)</em></label>
+    </div>
+    <div class="col-auto form-check">
+        <input type="checkbox" class="form-check-input" name="showUseless" value="true" id="su" checked="@showUseless" />
+        <label class="form-check-label small" for="su">Show useless rows</label>
+    </div>
+    <div class="col-auto"><button class="btn btn-sm btn-primary">Load</button></div>
+</form>
+
+<div class="card">
+    <div class="card-header d-flex justify-content-between">
+        <span>Rows for @d.ToString("yyyy-MM-dd") — <span id="rowCount">@Model.Count</span> record(s)</span>
+        <span class="small text-muted">Blue = regular customer &middot; Red strikethrough = useless &middot; double-click IMO cell to set/correct IMO</span>
+    </div>
+    <div class="table-responsive" style="max-height:65vh">
+        <table class="table table-sm table-hover align-middle mb-0" id="importTable">
+            <thead class="table-light sticky-top">
+                <tr>
+                    <th>Vessel</th><th>IMO</th><th>Port</th><th>Country</th>
+                    <th>Arrival</th><th>Departure</th><th>Origin</th><th>Status</th>
+                    @if (isAdmin) { <th>Assigned To</th> }
+                    <th>Matched</th><th style="width:110px">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in Model)
+                {
+                    <tr id="row-@r.ScrapeID" class="@(r.IsUseless ? "useless-row" : r.CustomerStatus == "Regular" ? "regular-customer" : "")">
+                        <td class="fw-semibold">@r.VesselName</td>
+                        <td class="imo-cell" data-id="@r.ScrapeID" title="Double-click to set IMO">
+                            @if (r.IMO_Number is not null)
+                            { <a asp-controller="MasterData" asp-action="History" asp-route-imo="@r.IMO_Number">@r.IMO_Number</a> }
+                            else { <span class="text-muted">—</span> }
+                        </td>
+                        <td>@r.PortName</td><td>@r.Country</td>
+                        <td class="small">@r.ArrivalDate</td><td class="small">@r.DepartureTime</td>
+                        <td class="small">@r.Origin</td><td class="small">@r.VesselStatus</td>
+                        @if (isAdmin) { <td class="small">@(r.AssignedUserName ?? "—")</td> }
+                        <td>@(r.IsMatched ? Html.Raw("<span class='badge bg-success'>Yes</span>") : Html.Raw("<span class='badge bg-secondary'>No</span>"))</td>
+                        <td>
+                            <button class="btn btn-sm py-0 useless-btn @(r.IsUseless ? "btn-danger" : "btn-outline-danger")"
+                                    data-id="@r.ScrapeID" data-useless="@(r.IsUseless ? "true" : "false")">
+                                @(r.IsUseless ? "Useless ✓" : "Useless")
+                            </button>
+                        </td>
+                    </tr>
+                }
+                @if (Model.Count == 0)
+                {
+                    <tr><td colspan="@(isAdmin ? 11 : 10)" class="text-center text-muted py-4">
+                        No rows for this date. @(isAdmin ? "Upload rows, then run Auto Data to distribute them." : "Ask the admin to run Auto Data for your assigned ports.")
+                    </td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    const af = '@tokens.RequestToken';
+
+    // V2 "Useless" button — real-time red highlight, no page reload, IMO added to global ignore list
+    $(document).on('click', '.useless-btn', function () {
+        const btn = $(this), id = btn.data('id'), nowUseless = btn.attr('data-useless') !== 'true';
+        $.post('@Url.Action("MarkUseless")', { scrapeId: id, useless: nowUseless, __RequestVerificationToken: af })
+            .done(function () {
+                btn.attr('data-useless', nowUseless)
+                   .toggleClass('btn-danger', nowUseless).toggleClass('btn-outline-danger', !nowUseless)
+                   .text(nowUseless ? 'Useless ✓' : 'Useless');
+                $('#row-' + id).toggleClass('useless-row', nowUseless);
+            });
+    });
+
+    // Double-click IMO cell → prompt & link the row to an IMO
+    $(document).on('dblclick', '.imo-cell', function () {
+        const id = $(this).data('id');
+        const imo = prompt('Enter IMO number for this vessel:');
+        if (!imo) return;
+        $.post('@Url.Action("SetImo")', { scrapeId: id, imo: imo, __RequestVerificationToken: af })
+            .done(r => r.ok ? location.reload() : alert(r.message));
+    });
+</script>
+}

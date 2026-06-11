@@ -1,0 +1,77 @@
+@model ShippingManagement.Web.Models.Company
+@{
+    ViewData["Title"] = Model.CompanyName;
+    var vessels = (List<ShippingManagement.Web.Models.Vessel>)ViewBag.Vessels;
+    bool regular = Model.Status == "Regular";
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0">
+        <i class="bi bi-building"></i> @Model.CompanyName
+        <span class="badge @(regular ? "bg-primary" : "bg-secondary")">@Model.Status</span>
+    </h4>
+    <div>
+        <form asp-action="SetStatus" method="post" class="d-inline">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="id" value="@Model.CompanyID" />
+            <input type="hidden" name="status" value="@(regular ? "Non-Regular" : "Regular")" />
+            <button class="btn btn-sm @(regular ? "btn-outline-secondary" : "btn-primary")">
+                Mark @(regular ? "Non-Regular" : "Regular")
+            </button>
+        </form>
+        <a asp-action="Index" class="btn btn-sm btn-outline-dark">Back to Companies</a>
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-md-5">
+        <div class="card h-100 @(regular ? "border-primary" : "")">
+            <div class="card-header">Company Information</div>
+            <div class="card-body small">
+                <dl class="row mb-0">
+                    <dt class="col-4">Address</dt><dd class="col-8">@(Model.Address ?? "—")</dd>
+                    <dt class="col-4">Country</dt><dd class="col-8">@(Model.Country ?? "—")</dd>
+                    <dt class="col-4">General Email</dt><dd class="col-8">@(Model.GeneralEmail ?? "—")</dd>
+                    <dt class="col-4">Website</dt><dd class="col-8">@(Model.Website ?? "—")</dd>
+                    <dt class="col-4">Telephone</dt><dd class="col-8">@(Model.Telephone ?? "—")</dd>
+                    <dt class="col-4">Fleet Count</dt><dd class="col-8"><span class="badge bg-dark">@Model.FleetCount vessel(s)</span> <em class="text-muted">(automatic)</em></dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-7">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between">
+                <span>Fleet (@vessels.Count)</span>
+                <a asp-controller="Vessels" asp-action="Register" class="btn btn-sm btn-success py-0">+ Register Vessel</a>
+            </div>
+            <div class="table-responsive" style="max-height:420px">
+                <table class="table table-sm table-hover mb-0 align-middle">
+                    <thead class="table-light sticky-top">
+                        <tr><th>IMO</th><th>Vessel</th><th>Type</th><th>Call Sign</th><th>Status</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var v in vessels)
+                        {
+                            <tr class="@(regular ? "regular-customer" : "")">
+                                <td>@v.IMO_Number</td>
+                                <td>@v.VesselName</td>
+                                <td>@v.VesselType</td>
+                                <td>@v.CallSign</td>
+                                <td>@v.Status</td>
+                                <td>
+                                    <a class="btn btn-sm btn-outline-primary py-0" asp-controller="Vessels" asp-action="Register" asp-route-imo="@v.IMO_Number">Edit</a>
+                                    <a class="btn btn-sm btn-outline-dark py-0" asp-controller="MasterData" asp-action="History" asp-route-imo="@v.IMO_Number">History</a>
+                                </td>
+                            </tr>
+                        }
+                        @if (vessels.Count == 0)
+                        {
+                            <tr><td colspan="6" class="text-center text-muted py-3">No vessels registered for this company.</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>

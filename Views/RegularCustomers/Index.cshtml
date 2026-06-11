@@ -1,0 +1,91 @@
+@model List<ShippingManagement.Web.Models.Company>
+@{
+    ViewData["Title"] = "Regular Customers";
+    var vesselMap = (Dictionary<int, List<ShippingManagement.Web.Models.Vessel>>)ViewBag.Vessels;
+    var recent = (List<ShippingManagement.Web.Models.ArrivalLog>)ViewBag.RecentArrivals;
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0"><i class="bi bi-star-fill text-primary"></i> Regular Customers Dashboard</h4>
+    <a asp-action="ExportExcel" class="btn btn-sm btn-success"><i class="bi bi-file-earmark-excel"></i> Export Excel</a>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-md-4">
+        <div class="card text-bg-primary"><div class="card-body py-2">
+            <div class="fs-3 fw-bold">@Model.Count</div><div class="small">Regular Companies</div>
+        </div></div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-bg-dark"><div class="card-body py-2">
+            <div class="fs-3 fw-bold">@vesselMap.Values.Sum(v => v.Count)</div><div class="small">Vessels in Regular Fleets</div>
+        </div></div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-bg-secondary"><div class="card-body py-2">
+            <div class="fs-3 fw-bold">@recent.Count</div><div class="small">Recent Arrivals (latest 100)</div>
+        </div></div>
+    </div>
+</div>
+
+<div class="accordion mb-4" id="regAcc">
+    @foreach (var c in Model)
+    {
+        var fleet = vesselMap.TryGetValue(c.CompanyID, out var f) ? f : new();
+        <div class="accordion-item">
+            <h2 class="accordion-header">
+                <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#co@(c.CompanyID)">
+                    <span class="me-2 fw-semibold">@c.CompanyName</span>
+                    <span class="badge bg-primary me-2">Regular</span>
+                    <span class="badge bg-dark">@c.FleetCount vessel(s)</span>
+                    <span class="ms-3 text-muted small">@c.Country</span>
+                </button>
+            </h2>
+            <div id="co@(c.CompanyID)" class="accordion-collapse collapse" data-bs-parent="#regAcc">
+                <div class="accordion-body p-2">
+                    <div class="small text-muted mb-2">
+                        @c.Address &middot; @c.GeneralEmail &middot; @c.Telephone &middot; @c.Website
+                        <a class="ms-2" asp-controller="Companies" asp-action="Details" asp-route-id="@c.CompanyID">Open company →</a>
+                    </div>
+                    <table class="table table-sm table-bordered mb-0">
+                        <thead class="table-light"><tr><th>IMO</th><th>Vessel</th><th>Type</th><th>Confirm Email</th><th>Purchase Email</th><th>Catering Email</th></tr></thead>
+                        <tbody>
+                            @foreach (var v in fleet)
+                            {
+                                <tr class="regular-customer">
+                                    <td>@v.IMO_Number</td><td>@v.VesselName</td><td>@v.VesselType</td>
+                                    <td class="small">@v.ConfirmEmail</td><td class="small">@v.PurchaseEmail</td><td class="small">@v.CateringEmail</td>
+                                </tr>
+                            }
+                            @if (fleet.Count == 0) { <tr><td colspan="6" class="text-muted text-center">No vessels.</td></tr> }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+    @if (Model.Count == 0)
+    {
+        <div class="alert alert-info">No companies are marked as <strong>Regular</strong> yet. Use the Status button on the Companies page.</div>
+    }
+</div>
+
+<div class="card">
+    <div class="card-header">Recent Arrivals — Regular Customers</div>
+    <div class="table-responsive" style="max-height:420px">
+        <table class="table table-sm table-hover mb-0">
+            <thead class="table-light sticky-top"><tr><th>Date</th><th>IMO</th><th>Vessel</th><th>Port</th><th>Country</th><th>Company</th></tr></thead>
+            <tbody>
+                @foreach (var a in recent)
+                {
+                    <tr class="regular-customer">
+                        <td>@a.ArrivalDate.ToString("yyyy-MM-dd")</td>
+                        <td><a asp-controller="MasterData" asp-action="History" asp-route-imo="@a.IMO_Number">@a.IMO_Number</a></td>
+                        <td>@a.VesselName</td><td>@a.PortName</td><td>@a.Country</td><td>@a.CompanyName</td>
+                    </tr>
+                }
+                @if (recent.Count == 0) { <tr><td colspan="6" class="text-center text-muted py-3">No arrivals recorded yet.</td></tr> }
+            </tbody>
+        </table>
+    </div>
+</div>

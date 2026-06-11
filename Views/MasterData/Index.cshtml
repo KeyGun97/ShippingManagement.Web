@@ -1,0 +1,95 @@
+@model List<ShippingManagement.Web.Models.ArrivalLog>
+@{
+    ViewData["Title"] = "Master Data";
+    string? q = ViewBag.Q, country = ViewBag.Country;
+    DateTime? date = ViewBag.Date;
+    bool all = ViewBag.All, regularOnly = ViewBag.RegularOnly;
+    var countries = (List<ShippingManagement.Web.Models.CountryItem>)ViewBag.Countries;
+    var companyCounts = (List<ShippingManagement.Web.Models.Company>)ViewBag.CompanyCounts;
+    bool searched = all || date is not null || !string.IsNullOrWhiteSpace(q) || !string.IsNullOrWhiteSpace(country) || regularOnly;
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0"><i class="bi bi-database"></i> Master Data <span class="text-muted fs-6">(date-wise history)</span></h4>
+    @if (searched)
+    {
+        <a class="btn btn-sm btn-success" asp-action="ExportExcel"
+           asp-route-q="@q" asp-route-country="@country" asp-route-date="@(date?.ToString("yyyy-MM-dd"))"
+           asp-route-all="@all" asp-route-regularOnly="@regularOnly">
+            <i class="bi bi-file-earmark-excel"></i> Export Excel</a>
+    }
+</div>
+
+<form method="get" class="row g-2 align-items-end mb-3">
+    <div class="col-md-3">
+        <label class="form-label small mb-0">Search <em class="text-muted">(vessel / IMO / company / port)</em></label>
+        <input name="q" value="@q" class="form-control form-control-sm" placeholder="e.g. 9315276 or Maersk" />
+    </div>
+    <div class="col-auto">
+        <label class="form-label small mb-0">Country</label>
+        <select name="country" class="form-select form-select-sm">
+            <option value="">All</option>
+            @foreach (var c in countries) { <option selected="@(country == c.CountryName)">@c.CountryName</option> }
+        </select>
+    </div>
+    <div class="col-auto">
+        <label class="form-label small mb-0">Date</label>
+        <input type="date" name="date" value="@(date?.ToString("yyyy-MM-dd"))" class="form-control form-control-sm" />
+    </div>
+    <div class="col-auto form-check ms-2">
+        <input type="checkbox" class="form-check-input" name="all" value="true" id="all" checked="@all" />
+        <label class="form-check-label small" for="all"><strong>ALL</strong> data (ignore date)</label>
+    </div>
+    <div class="col-auto form-check">
+        <input type="checkbox" class="form-check-input" name="regularOnly" value="true" id="ro" checked="@regularOnly" />
+        <label class="form-check-label small" for="ro">Regular customers only</label>
+    </div>
+    <div class="col-auto"><button class="btn btn-sm btn-primary"><i class="bi bi-search"></i> Search</button></div>
+</form>
+
+<div class="row g-3">
+    <div class="col-lg-9">
+        <div class="card">
+            <div class="card-header">Results — @Model.Count record(s) @(searched ? "" : "(run a search or tick ALL)")</div>
+            <div class="table-responsive" style="max-height:65vh">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead class="table-light sticky-top">
+                        <tr><th>Date</th><th>IMO</th><th>Vessel</th><th>Type</th><th>Port</th><th>Country</th><th>Company</th><th>Status</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var a in Model)
+                        {
+                            <tr class="@(a.CustomerStatus == "Regular" ? "regular-customer" : "")">
+                                <td>@a.ArrivalDate.ToString("yyyy-MM-dd")</td>
+                                <td>@a.IMO_Number</td>
+                                <td class="fw-semibold">@a.VesselName</td>
+                                <td>@a.VesselType</td>
+                                <td>@a.PortName</td>
+                                <td>@a.Country</td>
+                                <td>@a.CompanyName</td>
+                                <td>@(a.CustomerStatus == "Regular" ? Html.Raw("<span class='badge bg-primary'>Regular</span>") : Html.Raw("<span class='badge bg-secondary'>Non-Regular</span>"))</td>
+                                <td><a class="btn btn-sm btn-outline-dark py-0" asp-action="History" asp-route-imo="@a.IMO_Number">IMO History</a></td>
+                            </tr>
+                        }
+                        @if (Model.Count == 0)
+                        { <tr><td colspan="9" class="text-center text-muted py-4">@(searched ? "No records match the filters." : "Enter filters above, or tick ALL to load the full history.")</td></tr> }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-3">
+        <div class="card">
+            <div class="card-header">Company-wise Fleet Counts <span class="text-muted small">(top 20)</span></div>
+            <ul class="list-group list-group-flush small" style="max-height:65vh;overflow:auto">
+                @foreach (var c in companyCounts)
+                {
+                    <li class="list-group-item d-flex justify-content-between py-1 @(c.Status == "Regular" ? "regular-customer" : "")">
+                        <a asp-controller="Companies" asp-action="Details" asp-route-id="@c.CompanyID" class="text-decoration-none text-reset">@c.CompanyName</a>
+                        <span class="badge bg-dark">@c.FleetCount</span>
+                    </li>
+                }
+            </ul>
+        </div>
+    </div>
+</div>
