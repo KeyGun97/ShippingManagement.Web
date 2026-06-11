@@ -108,7 +108,24 @@ namespace ShippingManagement.Web.Controllers
     public class ImportDataController : Controller
     {
         private readonly ShippingRepository _repo;
-        public ImportDataController(ShippingRepository repo) => _repo = repo;
+        private readonly ScraperService _scraper;
+        public ImportDataController(ShippingRepository repo, ScraperService scraper)
+        { _repo = repo; _scraper = scraper; }
+
+        /// <summary>
+        /// V2 "Load Data" button (admin): collects every active URL from Ports Setup → Data Sources,
+        /// runs the Python/Selenium scraper (Scripts/scraper.py) against them, then imports the
+        /// resulting JSON file into ScrapedData so it appears in the Import Data table below.
+        /// </summary>
+        [HttpPost, RequireAdmin, ValidateAntiForgeryToken]
+        public IActionResult LoadData(DateTime? date, string? country)
+        {
+            var d = (date ?? DateTime.Today).Date;
+            var result = _scraper.LoadData(d, string.IsNullOrWhiteSpace(country) ? null : country);
+            if (result.Ok) TempData["Ok"] = result.Message;
+            else TempData["Error"] = result.Message;
+            return RedirectToAction(nameof(Index), new { date = d, country});
+        }
 
         public IActionResult Index(DateTime? date, string? country, bool showUseless = false, bool applyFilter = false)
         {

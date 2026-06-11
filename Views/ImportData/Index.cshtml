@@ -16,6 +16,17 @@
     <div class="d-flex gap-2">
         @if (isAdmin)
         {
+            <!-- V2 "Load Data": scrape all active Data Source URLs via Scripts/scraper.py and import the JSON -->
+            <form asp-action="LoadData" method="post" class="d-inline" id="loadDataForm"
+                  onsubmit="return startLoadData(this);">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="date" value="@d.ToString("yyyy-MM-dd")" />
+                <input type="hidden" name="country" value="@country" />
+                <button class="btn btn-sm btn-info fw-semibold" id="loadDataBtn" type="submit"
+                        title="Scrapes every active URL from Ports Setup → Data Sources and loads the results below">
+                    <i class="bi bi-globe"></i> Load Data
+                </button>
+            </form>
             <a asp-action="Upload" class="btn btn-sm btn-outline-primary"><i class="bi bi-upload"></i> Upload Rows</a>
             <form asp-controller="PortAssignments" asp-action="AutoData" method="post" class="d-inline">
                 @Html.AntiForgeryToken()
@@ -36,13 +47,19 @@
     <div class="col-auto">
         <label class="form-label small mb-0">Import date</label>
         <input type="date" name="date" value="@d.ToString("yyyy-MM-dd")" class="form-control form-control-sm" list="dates" />
-        <datalist id="dates">@foreach (var id_ in importDates) { <option value="@id_.ToString("yyyy-MM-dd")"></option> }</datalist>
+        <datalist id="dates">@foreach (var id_ in importDates) {
+        <option value="@id_.ToString("yyyy-MM-dd")"></option>
+                }
+</datalist>
     </div>
     <div class="col-auto">
         <label class="form-label small mb-0">Country</label>
         <select name="country" class="form-select form-select-sm">
             <option value="">All</option>
-            @foreach (var c in countries) { <option selected="@(country == c.CountryName)">@c.CountryName</option> }
+            @foreach (var c in countries)
+            {
+                <option selected="@(country == c.CountryName)">@c.CountryName</option>
+            }
         </select>
     </div>
     <div class="col-auto form-check ms-2">
@@ -65,10 +82,20 @@
         <table class="table table-sm table-hover align-middle mb-0" id="importTable">
             <thead class="table-light sticky-top">
                 <tr>
-                    <th>Vessel</th><th>IMO</th><th>Port</th><th>Country</th>
-                    <th>Arrival</th><th>Departure</th><th>Origin</th><th>Status</th>
-                    @if (isAdmin) { <th>Assigned To</th> }
-                    <th>Matched</th><th style="width:110px">Action</th>
+                    <th>Vessel</th>
+                    <th>IMO</th>
+                    <th>Port</th>
+                    <th>Country</th>
+                    <th>Arrival</th>
+                    <th>Departure</th>
+                    <th>Origin</th>
+                    <th>Status</th>
+                    @if (isAdmin)
+                    {
+                        <th>Assigned To</th>
+                    }
+                    <th>Matched</th>
+                    <th style="width:110px">Action</th>
                 </tr>
             </thead>
             <tbody>
@@ -78,14 +105,26 @@
                         <td class="fw-semibold">@r.VesselName</td>
                         <td class="imo-cell" data-id="@r.ScrapeID" title="Double-click to set IMO">
                             @if (r.IMO_Number is not null)
-                            { <a asp-controller="MasterData" asp-action="History" asp-route-imo="@r.IMO_Number">@r.IMO_Number</a> }
-                            else { <span class="text-muted">—</span> }
+                            {
+                                <a asp-controller="MasterData" asp-action="History" asp-route-imo="@r.IMO_Number">@r.IMO_Number</a>
+                            }
+                            else
+                            {
+
+                                <span class="text-muted">—</span>
+                            }
                         </td>
-                        <td>@r.PortName</td><td>@r.Country</td>
-                        <td class="small">@r.ArrivalDate</td><td class="small">@r.DepartureTime</td>
-                        <td class="small">@r.Origin</td><td class="small">@r.VesselStatus</td>
-                        @if (isAdmin) { <td class="small">@(r.AssignedUserName ?? "—")</td> }
-                        <td>@(r.IsMatched ? Html.Raw("<span class='badge bg-success'>Yes</span>") : Html.Raw("<span class='badge bg-secondary'>No</span>"))</td>
+                        <td>@r.PortName</td>
+                        <td>@r.Country</td>
+                        <td class="small">@r.ArrivalDate</td>
+                        <td class="small">@r.DepartureTime</td>
+                        <td class="small">@r.Origin</td>
+                        <td class="small">@r.VesselStatus</td>
+                        @if (isAdmin)
+                        {
+                            <td class="small">@(r.AssignedUserName ?? "—")</td>
+                        }
+                        <td>@(r.IsMatched? Html.Raw("<span class='badge bg-success'>Yes</span>") : Html.Raw("<span class='badge bg-secondary'>No</span>"))</td>
                         <td>
                             <button class="btn btn-sm py-0 useless-btn @(r.IsUseless ? "btn-danger" : "btn-outline-danger")"
                                     data-id="@r.ScrapeID" data-useless="@(r.IsUseless ? "true" : "false")">
@@ -96,9 +135,11 @@
                 }
                 @if (Model.Count == 0)
                 {
-                    <tr><td colspan="@(isAdmin ? 11 : 10)" class="text-center text-muted py-4">
-                        No rows for this date. @(isAdmin ? "Upload rows, then run Auto Data to distribute them." : "Ask the admin to run Auto Data for your assigned ports.")
-                    </td></tr>
+                    <tr>
+                        <td colspan="@(isAdmin ? 11 : 10)" class="text-center text-muted py-4">
+                            No rows for this date. @(isAdmin ? "Upload rows, then run Auto Data to distribute them." : "Ask the admin to run Auto Data for your assigned ports.")
+                        </td>
+                    </tr>
                 }
             </tbody>
         </table>
@@ -106,28 +147,40 @@
 </div>
 
 @section Scripts {
-<script>
-    const af = '@tokens.RequestToken';
+    <script>
+        const af = '@tokens.RequestToken';
 
-    // V2 "Useless" button — real-time red highlight, no page reload, IMO added to global ignore list
-    $(document).on('click', '.useless-btn', function () {
-        const btn = $(this), id = btn.data('id'), nowUseless = btn.attr('data-useless') !== 'true';
-        $.post('@Url.Action("MarkUseless")', { scrapeId: id, useless: nowUseless, __RequestVerificationToken: af })
-            .done(function () {
-                btn.attr('data-useless', nowUseless)
-                   .toggleClass('btn-danger', nowUseless).toggleClass('btn-outline-danger', !nowUseless)
-                   .text(nowUseless ? 'Useless ✓' : 'Useless');
-                $('#row-' + id).toggleClass('useless-row', nowUseless);
-            });
-    });
+        // "Load Data": confirm, then lock the button while the Python scraper runs on the server
+        function startLoadData(form) {
+            if (!confirm('Load Data will scrape ALL active source URLs from Ports Setup → Data Sources' +
+                         '@(string.IsNullOrEmpty(country) ? "" : $" (country: {country})")' +
+                         ' for import date @d.ToString("yyyy-MM-dd").\n\nThis can take several minutes. Continue?'))
+                return false;
+            const btn = document.getElementById('loadDataBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Scraping… please wait';
+            return true;
+        }
 
-    // Double-click IMO cell → prompt & link the row to an IMO
-    $(document).on('dblclick', '.imo-cell', function () {
-        const id = $(this).data('id');
-        const imo = prompt('Enter IMO number for this vessel:');
-        if (!imo) return;
-        $.post('@Url.Action("SetImo")', { scrapeId: id, imo: imo, __RequestVerificationToken: af })
-            .done(r => r.ok ? location.reload() : alert(r.message));
-    });
-</script>
+        // V2 "Useless" button — real-time red highlight, no page reload, IMO added to global ignore list
+        $(document).on('click', '.useless-btn', function () {
+            const btn = $(this), id = btn.data('id'), nowUseless = btn.attr('data-useless') !== 'true';
+            $.post('@Url.Action("MarkUseless")', { scrapeId: id, useless: nowUseless, __RequestVerificationToken: af })
+                .done(function () {
+                    btn.attr('data-useless', nowUseless)
+                       .toggleClass('btn-danger', nowUseless).toggleClass('btn-outline-danger', !nowUseless)
+                       .text(nowUseless ? 'Useless ✓' : 'Useless');
+                    $('#row-' + id).toggleClass('useless-row', nowUseless);
+                });
+        });
+
+        // Double-click IMO cell → prompt & link the row to an IMO
+        $(document).on('dblclick', '.imo-cell', function () {
+            const id = $(this).data('id');
+            const imo = prompt('Enter IMO number for this vessel:');
+            if (!imo) return;
+            $.post('@Url.Action("SetImo")', { scrapeId: id, imo: imo, __RequestVerificationToken: af })
+                .done(r => r.ok ? location.reload() : alert(r.message));
+        });
+    </script>
 }

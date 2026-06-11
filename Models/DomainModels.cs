@@ -144,4 +144,17 @@ namespace ShippingManagement.Web.Models
         public string? Website { get; set; }
         public string? CustomerStatus { get; set; }
     }
+    public class ScrapeSourceInfo
+    {
+        public int SourceID { get; set; }
+        public string SourceName { get; set; } = "";
+        public string Url { get; set; } = "";
+        public string? PageParamPattern { get; set; }
+        public int StartPage { get; set; } = 1;
+        public int EndPage { get; set; } = 50;
+        public int PortID { get; set; }
+        public string PortName { get; set; } = "";
+        public int MaxPages { get; set; } = 50;
+        public string CountryName { get; set; } = "";
+    }
 }

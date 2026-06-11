@@ -460,5 +460,34 @@ _cs = $"Server={server};Database=ShippingDB;Trusted_Connection=True;TrustServerC
                 SELECT COUNT(*) FROM ArrivalLog WHERE ArrivalDate = CAST(GETDATE() AS DATE);");
             return (multi.ReadSingle<int>(), multi.ReadSingle<int>(), multi.ReadSingle<int>(), multi.ReadSingle<int>());
         }
+        /// <summary>All active source URLs with their port + country — feeds the Python scraper ("Load Data").</summary>
+        public IEnumerable<ScrapeSourceInfo> GetAllActiveSources(string? country = null)
+        {
+            const string sql = @"
+                SELECT s.SourceID, s.SourceName, s.Url, s.PageParamPattern, s.StartPage, s.EndPage,
+                       p.PortID, p.PortName, p.MaxPages, c.CountryName
+                FROM PortSources s
+                JOIN Ports p     ON p.PortID = s.PortID
+                JOIN Countries c ON c.CountryID = p.CountryID
+                WHERE s.IsActive = 1
+                  AND (@country IS NULL OR c.CountryName = @country)
+                ORDER BY c.CountryName, p.PortName, s.SourceName";
+            using var c2 = Conn();
+            return c2.Query<ScrapeSourceInfo>(sql, new { country });
+        }
+        public List<VesselType> GetAllVesselTypes()
+        {
+                using var conn = new SqlConnection(_cs);
+
+                const string sql = @"
+            SELECT
+                TypeID,
+                TypeName
+            FROM VesselTypes
+            ORDER BY TypeName";
+
+                return conn.Query<VesselType>(sql).ToList();
+        }
+
     }
 }
