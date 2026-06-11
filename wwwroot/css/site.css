@@ -6,7 +6,10 @@ body { background:#f2f5f8; font-family:'Segoe UI',system-ui,sans-serif; }
 .sidebar .nav-link i { margin-right:.5rem; }
 .sidebar .nav-link:hover { background:rgba(255,255,255,.08); color:#fff; }
 .sidebar .nav-link.active { background:var(--accent); color:#fff; }
-.content { max-width:1500px; }
+.content {
+    max-width: 1500px;
+    flex: 1;
+}
 .tile { border:0; border-radius:12px; color:#fff; }
 .tile .display-6 { font-weight:700; }
 .table-sm td, .table-sm th { vertical-align:middle; }
