@@ -8,9 +8,10 @@ namespace ShippingManagement.Web.Data
     public class ShippingRepository
     {
         private readonly string _cs;
+        string server = $"{Environment.MachineName}";
+
         public ShippingRepository(IConfiguration cfg) =>
-            _cs = cfg.GetConnectionString("ShippingDB")
-                  ?? throw new InvalidOperationException("Connection string 'ShippingDB' missing.");
+_cs = $"Server={server};Database=ShippingDB;Trusted_Connection=True;TrustServerCertificate=True";
 
         private IDbConnection Conn() => new SqlConnection(_cs);
 
