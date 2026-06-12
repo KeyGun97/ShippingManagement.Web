@@ -156,17 +156,24 @@ namespace ShippingManagement.Web.Controllers
         [HttpPost]
         public IActionResult SetImo(int scrapeId, string imo)
         {
-            if (string.IsNullOrWhiteSpace(imo)) return Json(new { ok = false, message = "IMO required." });
-            _repo.SetScrapedIMO(scrapeId, imo.Trim());
+            var clean = new string((imo ?? "").Where(char.IsDigit).ToArray());
+            if (clean.Length != 7) return Json(new { ok = false, message = "A valid IMO is exactly 7 digits." });
+            _repo.SetScrapedIMO(scrapeId, clean);
             return Json(new { ok = true });
         }
 
         /// <summary>Saves the user's filtered, non-useless rows into date-wise ArrivalLog history.</summary>
         [HttpPost, ValidateAntiForgeryToken]
-        public IActionResult SaveFiltered(DateTime date)
+        public IActionResult SaveFiltered(DateTime date, int[]? selectedIds)
         {
-            int saved = _repo.SaveFilteredToArrivalLog(HttpContext.CurrentUserId(), date);
-            TempData["Ok"] = $"{saved} record(s) saved to the {date:yyyy-MM-dd} history. Useless and unmatched rows were excluded.";
+            bool bySelection = selectedIds is { Length: > 0 };
+            var (saved, unregistered) = _repo.SaveFilteredToArrivalLog(HttpContext.CurrentUserId(), date, selectedIds);
+            TempData["Ok"] = bySelection
+                ? $"{saved} of {selectedIds!.Length} selected row(s) saved to the {date:yyyy-MM-dd} history (useless/unmatched/duplicate rows skipped). Their status is now Saved."
+                : $"{saved} record(s) saved to the {date:yyyy-MM-dd} history. Useless and unmatched rows were excluded.";
+            if (unregistered > 0)
+                TempData["Error"] = $"{unregistered} row(s) were NOT saved because their vessel is not registered in the database yet. " +
+                                    "Open Vessels → Register (or double-click the IMO) to register them, then save again.";
             return RedirectToAction(nameof(Index), new { date });
         }
 
@@ -195,12 +202,17 @@ namespace ShippingManagement.Web.Controllers
                 var parts = line.Contains('\t') ? line.Split('\t') : line.Split(',');
                 if (parts.Length == 0 || string.IsNullOrWhiteSpace(parts[0])) continue;
                 string? imo = parts.Length > 1 && !string.IsNullOrWhiteSpace(parts[1]) ? parts[1].Trim() : null;
+                if (imo is not null)
+                {
+                    var digitsOnly = new string(imo.Where(char.IsDigit).ToArray());
+                    imo = digitsOnly.Length == 7 ? digitsOnly : null;   // junk values ('---','0') -> null
+                }
                 imo ??= _repo.LookupIMOByVesselName(parts[0].Trim());   // auto IMO detection by vessel name (spec)
                 rows.Add(new ScrapedRecord
                 {
                     VesselName = parts[0].Trim(),
                     IMO_Number = imo,
-                    IsMatched = imo is not null,
+                    IsMatched = _repo.GetVesselByIMO(imo) != null,//imo is not null,
                     PortID = port.PortID,
                     PortName = port.PortName,
                     Country = port.CountryName ?? "",

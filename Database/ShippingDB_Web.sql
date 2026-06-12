@@ -181,6 +181,7 @@ CREATE TABLE dbo.ScrapedData (
     VesselSize    NVARCHAR(40)  NULL,
     IsMatched     BIT NOT NULL DEFAULT 0,
     IsUseless     BIT NOT NULL DEFAULT 0,        -- "Useless" button; excluded by all filters
+    IsSaved       BIT NOT NULL DEFAULT 0,        -- set when row was saved to ArrivalLog history
     AssignedUserID INT NULL REFERENCES dbo.Users(UserID),  -- set by Auto Data distribution
     ImportDate    DATE NOT NULL DEFAULT CAST(GETDATE() AS DATE),
     CreatedAt     DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()

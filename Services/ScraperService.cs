@@ -134,8 +134,8 @@ namespace ShippingManagement.Web.Services
             foreach (var r in rows)
             {
                 if (string.IsNullOrWhiteSpace(r.VesselName)) continue;
-                string? imo = string.IsNullOrWhiteSpace(r.IMO_Number) ? null : r.IMO_Number.Trim();
-                imo ??= _repo.LookupIMOByVesselName(r.VesselName.Trim());   // auto IMO detection by name
+                string? imo = SanitizeImo(r.IMO_Number);                    // junk ('---','0','') -> null
+                imo ??= SanitizeImo(_repo.LookupIMOByVesselName(r.VesselName.Trim()));   // auto IMO detection by name
                 bool exists = vesselTypes.Any(v =>
                     string.Equals(v.TypeName, r.VesselType,
                   StringComparison.OrdinalIgnoreCase));
@@ -146,7 +146,7 @@ namespace ShippingManagement.Web.Services
                     {
                         VesselName = r.VesselName.Trim(),
                         IMO_Number = imo,
-                        IsMatched = imo is not null,
+                        IsMatched = _repo.GetVesselByIMO(imo) != null,//imo is not null,
                         PortID = r.PortID,
                         PortName = r.PortName ?? "",
                         Country = r.Country ?? "",
@@ -165,6 +165,15 @@ namespace ShippingManagement.Web.Services
             return new(true,
                 $"Load Data complete: {records.Count} row(s) imported from {sources.Count} source URL(s). " +
                 "Run Auto Data to distribute them to users.", records.Count, sources.Count);
+        }
+
+        /// <summary>A real IMO is exactly 7 digits — anything else ('---', '0', blanks) becomes null
+        /// so it can never collide in dedupe or match the global UselessVessels list.</summary>
+        private static string? SanitizeImo(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return null;
+            var digits = new string(raw.Where(char.IsDigit).ToArray());
+            return digits.Length == 7 ? digits : null;
         }
 
         private static string Val(string? configured, string fallback) =>

@@ -105,7 +105,11 @@ _cs = $"Server={server};Database=ShippingDB;Trusted_Connection=True;TrustServerC
                     VALUES
                         (@IMO_Number, @VesselName, @VesselTypeID, @CallSign, @CompanyID, @Port, @ETA,
                          @Country, @Address, @PhoneNo, @Terms, @ConfirmEmail, @GenerateEmail,
-                         @DeckEngEmail, @CateringEmail, @PurchaseEmail, @GeneralEmail, @Status)";
+                         @DeckEngEmail, @CateringEmail, @PurchaseEmail, @GeneralEmail, @Status)
+
+                    UPDATE ScrapedData 
+                    SET IsMatched = 1
+                    WHERE IMO_Number = @IMO_Number";
             using var c = Conn();
             c.Execute(sql, v);
         }
@@ -313,17 +317,30 @@ _cs = $"Server={server};Database=ShippingDB;Trusted_Connection=True;TrustServerC
 
         public void InsertScrapedRows(IEnumerable<ScrapedRecord> rows)
         {
+            // Skips rows that already exist with the same IMO + Port + Country (Load Data dedupe).
+            // Rows without an IMO are deduped by VesselName + Port + Country instead.
+            // The "useless" auto-flag only fires for VALID 7-digit IMOs so junk values
+            // ('---', '0', blanks) shared by many rows can never mass-flag records.
             const string sql = @"
                 INSERT INTO ScrapedData
                     (VesselName, IMO_Number, PortID, PortName, Country, ArrivalDate, DepartureTime,
                      Origin, VesselStatus, DataSource, Deadweight, GrossTonnage, VesselBuilt,
                      VesselType, VesselSize, IsMatched, IsUseless, AssignedUserID, ImportDate)
-                VALUES
-                    (@VesselName, @IMO_Number, @PortID, @PortName, @Country, @ArrivalDate, @DepartureTime,
+                SELECT
+                     @VesselName, @IMO_Number, @PortID, @PortName, @Country, @ArrivalDate, @DepartureTime,
                      @Origin, @VesselStatus, @DataSource, @Deadweight, @GrossTonnage, @VesselBuilt,
                      @VesselType, @VesselSize, @IsMatched,
-                     CASE WHEN @IMO_Number IS NOT NULL AND EXISTS (SELECT 1 FROM UselessVessels uv WHERE uv.IMO_Number=@IMO_Number) THEN 1 ELSE 0 END,
-                     @AssignedUserID, @ImportDate)";
+                     CASE WHEN @IMO_Number IS NOT NULL
+                               AND LEN(@IMO_Number) = 7 AND @IMO_Number NOT LIKE '%[^0-9]%'
+                               AND EXISTS (SELECT 1 FROM UselessVessels uv WHERE uv.IMO_Number=@IMO_Number)
+                          THEN 1 ELSE 0 END,
+                     @AssignedUserID, @ImportDate
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM ScrapedData d
+                    WHERE d.PortName = @PortName
+                      AND d.Country  = @Country
+                      AND ((@IMO_Number IS NOT NULL AND d.IMO_Number = @IMO_Number)
+                        OR (@IMO_Number IS NULL     AND d.IMO_Number IS NULL AND d.VesselName = @VesselName)))";
             using var c = Conn();
             c.Execute(sql, rows);
         }
@@ -331,13 +348,18 @@ _cs = $"Server={server};Database=ShippingDB;Trusted_Connection=True;TrustServerC
         /// <summary>Marks a row useless and adds its IMO to the global ignore list (per V2).</summary>
         public void MarkUseless(int scrapeId, bool useless, int markedBy)
         {
+            // Only VALID 7-digit IMOs go into the global UselessVessels list; junk values
+            // ('---', '0', '') would otherwise propagate "useless" to unrelated rows.
+            // Un-marking also removes the IMO from the global list so future scrapes are clean.
             const string sql = @"
                 UPDATE ScrapedData SET IsUseless=@useless WHERE ScrapeID=@scrapeId;
-                IF @useless = 1
+                DECLARE @imo VARCHAR(15) = (SELECT IMO_Number FROM ScrapedData WHERE ScrapeID=@scrapeId);
+                IF @imo IS NOT NULL AND LEN(@imo) = 7 AND @imo NOT LIKE '%[^0-9]%'
                 BEGIN
-                    DECLARE @imo VARCHAR(15) = (SELECT IMO_Number FROM ScrapedData WHERE ScrapeID=@scrapeId);
-                    IF @imo IS NOT NULL AND NOT EXISTS (SELECT 1 FROM UselessVessels WHERE IMO_Number=@imo)
+                    IF @useless = 1 AND NOT EXISTS (SELECT 1 FROM UselessVessels WHERE IMO_Number=@imo)
                         INSERT INTO UselessVessels (IMO_Number, MarkedBy) VALUES (@imo, @markedBy);
+                    IF @useless = 0
+                        DELETE FROM UselessVessels WHERE IMO_Number=@imo;
                 END";
             using var c = Conn();
             c.Execute(sql, new { scrapeId, useless, markedBy });
@@ -379,23 +401,65 @@ _cs = $"Server={server};Database=ShippingDB;Trusted_Connection=True;TrustServerC
         }
 
         /// <summary>Saves filtered (non-useless, matched-or-not) rows into the date-wise ArrivalLog history.</summary>
-        public int SaveFilteredToArrivalLog(int userId, DateTime importDate)
+        /// <summary>
+        /// Saves rows to date-wise ArrivalLog history and stamps them IsSaved=1 in ScrapedData.
+        /// selectedIds == null/empty -> classic behavior (all of the user's non-useless matched rows);
+        /// otherwise only the checkbox-selected rows are saved (still excluding useless/unmatched).
+        /// </summary>
+        public (int Saved, int Unregistered) SaveFilteredToArrivalLog(int userId, DateTime importDate, IEnumerable<int>? selectedIds = null)
         {
+            var ids = selectedIds?.Distinct().ToArray() ?? Array.Empty<int>();
+            bool bySelection = ids.Length > 0;
             const string sql = @"
-                INSERT INTO ArrivalLog (IMO_Number, PortName, Country, ArrivalDate, IsTagged, EnteredBy)
-                SELECT s.IMO_Number, s.PortName, s.Country, @importDate, 0, @userId
+                DECLARE @savedRows TABLE (ScrapeID INT);
+
+                 INSERT INTO @savedRows (ScrapeID)
+                SELECT s.ScrapeID
                 FROM ScrapedData s
                 WHERE s.ImportDate = @importDate
                   AND s.IsUseless = 0
-                  AND s.AssignedUserID = @userId
                   AND s.IMO_Number IS NOT NULL
-                  AND NOT EXISTS (SELECT 1 FROM ArrivalLog al
+                  -- ArrivalLog.IMO_Number has an FK to Vessels: only rows whose vessel
+                  -- is REGISTERED can be saved, otherwise the insert violates the FK.
+                  AND EXISTS (SELECT 1 FROM Vessels v WHERE v.IMO_Number = s.IMO_Number)
+                  AND ((@bySelection = 1 AND s.ScrapeID IN @ids)
+                    OR (@bySelection = 0 AND s.AssignedUserID = @userId));
+
+                -- count candidate rows skipped because their vessel isn't registered yet
+                DECLARE @unregistered INT = (
+                    SELECT COUNT(*)
+                    FROM ScrapedData s
+                    WHERE s.ImportDate = @importDate
+                      AND s.IsUseless = 0
+                      AND s.IMO_Number IS NOT NULL
+                      AND NOT EXISTS (SELECT 1 FROM Vessels v WHERE v.IMO_Number = s.IMO_Number)
+                      AND ((@bySelection = 1 AND s.ScrapeID IN @ids)
+                        OR (@bySelection = 0 AND s.AssignedUserID = @userId)));
+
+                INSERT INTO ArrivalLog (IMO_Number, PortName, Country, ArrivalDate, IsTagged, EnteredBy)
+                SELECT s.IMO_Number, s.PortName, s.Country, @importDate, 0, @userId
+                FROM ScrapedData s
+                JOIN @savedRows sr ON sr.ScrapeID = s.ScrapeID
+                WHERE NOT EXISTS (SELECT 1 FROM ArrivalLog al
                                   WHERE al.IMO_Number = s.IMO_Number
                                     AND al.ArrivalDate = @importDate
                                     AND al.PortName = s.PortName);
-                SELECT @@ROWCOUNT;";
+                DECLARE @inserted INT = @@ROWCOUNT;
+
+                -- status change in ScrapedData: these vessels are now in master data history
+                UPDATE s SET s.IsSaved = 1
+                FROM ScrapedData s JOIN @savedRows sr ON sr.ScrapeID = s.ScrapeID;
+
+                SELECT @inserted AS Inserted, @unregistered AS Unregistered; ";
             using var c = Conn();
-            return c.ExecuteScalar<int>(sql, new { userId, importDate = importDate.Date });
+            var r = c.QuerySingle<(int Inserted, int Unregistered)>(sql, new
+            {
+                userId,
+                importDate = importDate.Date,
+                bySelection = bySelection ? 1 : 0,
+                ids = bySelection ? ids : new[] { -1 }   // Dapper needs a non-empty list for IN
+            });
+            return r;
         }
 
         public IEnumerable<DateTime> GetImportDates()

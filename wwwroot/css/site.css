@@ -18,3 +18,10 @@ tr.useless-row td { background:#f8d7da !important; text-decoration:line-through;
 .login-bg { min-height:100vh; background:linear-gradient(135deg,var(--navy-dark),var(--navy-mid)); display:flex; align-items:center; justify-content:center; }
 .login-card { width:380px; border-radius:14px; }
 @media print { .sidebar,.topbar,.no-print { display:none !important; } .content { padding:0 !important; } }
+
+
+/* ---- global table sorting (wwwroot/js/table-sort.js) ---- */
+.table thead th:not([data-nosort]) { cursor: pointer; user-select: none; white-space: nowrap; }
+.table thead th:not([data-nosort]):hover { background-color: rgba(13,110,253,.08); }
+.table thead th.sorted-asc::after  { content: " \2191"; font-size: .8em; }
+.table thead th.sorted-desc::after { content: " \2193"; font-size: .8em; }

@@ -92,6 +92,7 @@ namespace ShippingManagement.Web.Models
     public class ScrapedRecord
     {
         public int ScrapeID { get; set; }
+        public bool IsSaved { get; set; }      // set when the row was saved to ArrivalLog history
         public string VesselName { get; set; } = "";
         public string? IMO_Number { get; set; }
         public int? PortID { get; set; }

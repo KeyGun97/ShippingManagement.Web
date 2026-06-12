@@ -24,21 +24,22 @@
                 <input type="hidden" name="country" value="@country" />
                 <button class="btn btn-sm btn-info fw-semibold" id="loadDataBtn" type="submit"
                         title="Scrapes every active URL from Ports Setup → Data Sources and loads the results below">
-                    <i class="bi bi-globe"></i> Load Data
+                    <i class="bi bi-globe"></i> Scrap Data
                 </button>
             </form>
-            <a asp-action="Upload" class="btn btn-sm btn-outline-primary"><i class="bi bi-upload"></i> Upload Rows</a>
+            @* <a asp-action="Upload" class="btn btn-sm btn-outline-primary"><i class="bi bi-upload"></i> Upload Rows</a> *@
             <form asp-controller="PortAssignments" asp-action="AutoData" method="post" class="d-inline">
                 @Html.AntiForgeryToken()
                 <input type="hidden" name="importDate" value="@d.ToString("yyyy-MM-dd")" />
-                <button class="btn btn-sm btn-warning"><i class="bi bi-lightning-charge"></i> Auto Data (@d.ToString("dd MMM"))</button>
+                <button class="btn btn-sm btn-warning"><i class="bi bi-lightning-charge"></i> Assign Data (@d.ToString("dd MMM"))</button>
             </form>
         }
-        <form asp-action="SaveFiltered" method="post" class="d-inline"
-              onsubmit="return confirm('Save all non-useless, IMO-matched rows of @d.ToString("yyyy-MM-dd") into the date-wise history?');">
+        <form asp-action="SaveFiltered" method="post" class="d-inline" id="saveForm"
+              onsubmit="return confirmSave();">
             @Html.AntiForgeryToken()
             <input type="hidden" name="date" value="@d.ToString("yyyy-MM-dd")" />
-            <button class="btn btn-sm btn-success"><i class="bi bi-save"></i> Save Filtered to History</button>
+            <button class="btn btn-sm btn-success"><i class="bi bi-save"></i> Save Filtered to History
+                <span class="badge text-bg-light ms-1 d-none" id="selCount"></span></button>
         </form>
     </div>
 </div>
@@ -70,7 +71,7 @@
         <input type="checkbox" class="form-check-input" name="showUseless" value="true" id="su" checked="@showUseless" />
         <label class="form-check-label small" for="su">Show useless rows</label>
     </div>
-    <div class="col-auto"><button class="btn btn-sm btn-primary">Load</button></div>
+    <div class="col-auto"><button class="btn btn-sm btn-primary">Filter</button></div>
 </form>
 
 <div class="card">
@@ -82,6 +83,7 @@
         <table class="table table-sm table-hover align-middle mb-0" id="importTable">
             <thead class="table-light sticky-top">
                 <tr>
+                    <th data-nosort style="width:28px"><input type="checkbox" class="form-check-input" id="selAll" title="Select / clear all rows on this page" /></th>
                     <th>Vessel</th>
                     <th>IMO</th>
                     <th>Port</th>
@@ -89,19 +91,24 @@
                     <th>Arrival</th>
                     <th>Departure</th>
                     <th>Origin</th>
-                    <th>Status</th>
+                    @* <th>Status</th> *@
                     @if (isAdmin)
                     {
                         <th>Assigned To</th>
                     }
                     <th>Matched</th>
-                    <th style="width:110px">Action</th>
+                    <th>Saved</th>
+                    <th data-nosort style="width:50px">Action</th>
                 </tr>
             </thead>
             <tbody>
                 @foreach (var r in Model)
                 {
                     <tr id="row-@r.ScrapeID" class="@(r.IsUseless ? "useless-row" : r.CustomerStatus == "Regular" ? "regular-customer" : "")">
+                        <td data-sort="">
+                            <input type="checkbox" class="form-check-input row-check" name="selectedIds"
+                                   value="@r.ScrapeID" form="saveForm" @(r.IsUseless ? "disabled" : "") />
+                        </td>
                         <td class="fw-semibold">@r.VesselName</td>
                         <td class="imo-cell" data-id="@r.ScrapeID" title="Double-click to set IMO">
                             @if (r.IMO_Number is not null)
@@ -119,12 +126,13 @@
                         <td class="small">@r.ArrivalDate</td>
                         <td class="small">@r.DepartureTime</td>
                         <td class="small">@r.Origin</td>
-                        <td class="small">@r.VesselStatus</td>
+                        @* <td class="small">@r.VesselStatus</td> *@
                         @if (isAdmin)
                         {
                             <td class="small">@(r.AssignedUserName ?? "—")</td>
                         }
                         <td>@(r.IsMatched? Html.Raw("<span class='badge bg-success'>Yes</span>") : Html.Raw("<span class='badge bg-secondary'>No</span>"))</td>
+                        <td>@(r.IsSaved ? Html.Raw("<span class='badge bg-primary'>Saved</span>") : Html.Raw("<span class='badge bg-light text-dark border'>Pending</span>"))</td>
                         <td>
                             <button class="btn btn-sm py-0 useless-btn @(r.IsUseless ? "btn-danger" : "btn-outline-danger")"
                                     data-id="@r.ScrapeID" data-useless="@(r.IsUseless ? "true" : "false")">
@@ -136,7 +144,7 @@
                 @if (Model.Count == 0)
                 {
                     <tr>
-                        <td colspan="@(isAdmin ? 11 : 10)" class="text-center text-muted py-4">
+                        <td colspan="@(isAdmin ? 13 : 12)" class="text-center text-muted py-4">
                             No rows for this date. @(isAdmin ? "Upload rows, then run Auto Data to distribute them." : "Ask the admin to run Auto Data for your assigned ports.")
                         </td>
                     </tr>
@@ -149,6 +157,24 @@
 @section Scripts {
     <script>
         const af = '@tokens.RequestToken';
+
+    // ---- row selection: select-all + live count on the Save button ----
+    function refreshSelCount() {
+        const n = $('.row-check:checked').length;
+        $('#selCount').toggleClass('d-none', n === 0).text(n + ' selected');
+    }
+    $(document).on('change', '#selAll', function () {
+        $('.row-check:not(:disabled)').prop('checked', this.checked);
+        refreshSelCount();
+    });
+    $(document).on('change', '.row-check', refreshSelCount);
+
+    function confirmSave() {
+        const n = $('.row-check:checked').length;
+        return n > 0
+            ? confirm('Save the ' + n + ' SELECTED row(s) of @d.ToString("yyyy-MM-dd") into the date-wise history?\n\n(Useless or IMO-less rows among them are skipped automatically.)')
+            : confirm('No rows are selected — save ALL your non-useless, IMO-matched rows of @d.ToString("yyyy-MM-dd") into the date-wise history?');
+    }
 
         // "Load Data": confirm, then lock the button while the Python scraper runs on the server
         function startLoadData(form) {
