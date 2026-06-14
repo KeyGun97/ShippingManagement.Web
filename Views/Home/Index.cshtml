@@ -5,7 +5,9 @@
 <div class="row g-3 mb-4">
     <div class="col-md-3"><div class="card tile p-3" style="background:#1b3a5c"><div class="display-6">@ViewBag.Vessels</div>Registered Vessels</div></div>
     <div class="col-md-3"><div class="card tile p-3" style="background:#22a6f2"><div class="display-6">@ViewBag.Companies</div>Companies</div></div>
-    <div class="col-md-3"><div class="card tile p-3" style="background:#198754"><div class="display-6">@ViewBag.Regulars</div>Regular Customers</div></div>
+    <div class="col-md-3">
+        <div class="card tile p-3" style="background:#198754"><div class="display-6">0@* 2nd phase @ViewBag.Regulars*@</div>Regular Customers</div>
+    </div>
     <div class="col-md-3"><div class="card tile p-3" style="background:#fd7e14"><div class="display-6">@ViewBag.TodayArrivals</div>Today's Arrivals</div></div>
 </div>
 
@@ -16,7 +18,8 @@
         ("Import Data","bi-robot","/ImportData","Scraped port data, IMO matching, Useless handling, filtering"),
         ("Daily Report","bi-file-earmark-bar-graph","/DailyReport","Country/date report, single & Asia/Non-Asia exports"),
         ("Master Data","bi-database","/MasterData","Country-wise, company-wise & IMO history tracking"),
-        ("Regular Customers","bi-star-fill","/RegularCustomers","Dedicated dashboard for regular customers & their fleets"),
+        // 2nd phase
+        //("Regular Customers","bi-star-fill","/RegularCustomers","Dedicated dashboard for regular customers & their fleets"),
     })
     {
         <div class="col-md-4">
