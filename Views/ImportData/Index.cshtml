@@ -24,22 +24,24 @@
                 <input type="hidden" name="country" value="@country" />
                 <button class="btn btn-sm btn-info fw-semibold" id="loadDataBtn" type="submit"
                         title="Scrapes every active URL from Ports Setup → Data Sources and loads the results below">
-                    <i class="bi bi-globe"></i> Scrap Data
+                    <i class="bi bi-globe"></i> Load Data
                 </button>
             </form>
-            @* <a asp-action="Upload" class="btn btn-sm btn-outline-primary"><i class="bi bi-upload"></i> Upload Rows</a> *@
+            <a asp-action="Upload" class="btn btn-sm btn-outline-primary"><i class="bi bi-upload"></i> Upload Rows</a>
             <form asp-controller="PortAssignments" asp-action="AutoData" method="post" class="d-inline">
                 @Html.AntiForgeryToken()
                 <input type="hidden" name="importDate" value="@d.ToString("yyyy-MM-dd")" />
-                <button class="btn btn-sm btn-warning"><i class="bi bi-lightning-charge"></i> Assign Data (@d.ToString("dd MMM"))</button>
+                <button class="btn btn-sm btn-warning"><i class="bi bi-lightning-charge"></i> Auto Data (@d.ToString("dd MMM"))</button>
             </form>
         }
         <form asp-action="SaveFiltered" method="post" class="d-inline" id="saveForm"
               onsubmit="return confirmSave();">
             @Html.AntiForgeryToken()
             <input type="hidden" name="date" value="@d.ToString("yyyy-MM-dd")" />
-            <button class="btn btn-sm btn-success"><i class="bi bi-save"></i> Save Filtered to History
-                <span class="badge text-bg-light ms-1 d-none" id="selCount"></span></button>
+            <button class="btn btn-sm btn-success">
+                <i class="bi bi-save"></i> Save Filtered to History
+                <span class="badge text-bg-light ms-1 d-none" id="selCount"></span>
+            </button>
         </form>
     </div>
 </div>
@@ -48,19 +50,13 @@
     <div class="col-auto">
         <label class="form-label small mb-0">Import date</label>
         <input type="date" name="date" value="@d.ToString("yyyy-MM-dd")" class="form-control form-control-sm" list="dates" />
-        <datalist id="dates">@foreach (var id_ in importDates) {
-        <option value="@id_.ToString("yyyy-MM-dd")"></option>
-                }
-</datalist>
+        <datalist id="dates">@foreach (var id_ in importDates) { <option value="@id_.ToString("yyyy-MM-dd")"></option> }</datalist>
     </div>
     <div class="col-auto">
         <label class="form-label small mb-0">Country</label>
         <select name="country" class="form-select form-select-sm">
             <option value="">All</option>
-            @foreach (var c in countries)
-            {
-                <option selected="@(country == c.CountryName)">@c.CountryName</option>
-            }
+            @foreach (var c in countries) { <option selected="@(country == c.CountryName)">@c.CountryName</option> }
         </select>
     </div>
     <div class="col-auto form-check ms-2">
@@ -71,7 +67,7 @@
         <input type="checkbox" class="form-check-input" name="showUseless" value="true" id="su" checked="@showUseless" />
         <label class="form-check-label small" for="su">Show useless rows</label>
     </div>
-    <div class="col-auto"><button class="btn btn-sm btn-primary">Filter</button></div>
+    <div class="col-auto"><button class="btn btn-sm btn-primary">Load</button></div>
 </form>
 
 <div class="card">
@@ -132,7 +128,7 @@
                             <td class="small">@(r.AssignedUserName ?? "—")</td>
                         }
                         <td>@(r.IsMatched? Html.Raw("<span class='badge bg-success'>Yes</span>") : Html.Raw("<span class='badge bg-secondary'>No</span>"))</td>
-                        <td>@(r.IsSaved ? Html.Raw("<span class='badge bg-primary'>Saved</span>") : Html.Raw("<span class='badge bg-light text-dark border'>Pending</span>"))</td>
+                        <td>@(r.IsSaved? Html.Raw("<span class='badge bg-primary'>Saved</span>") : Html.Raw("<span class='badge bg-light text-dark border'>Pending</span>"))</td>
                         <td>
                             <button class="btn btn-sm py-0 useless-btn @(r.IsUseless ? "btn-danger" : "btn-outline-danger")"
                                     data-id="@r.ScrapeID" data-useless="@(r.IsUseless ? "true" : "false")">
@@ -155,58 +151,96 @@
 </div>
 
 @section Scripts {
-    <script>
-        const af = '@tokens.RequestToken';
+<script>
+    const af = '@tokens.RequestToken';
 
-    // ---- row selection: select-all + live count on the Save button ----
-    function refreshSelCount() {
-        const n = $('.row-check:checked').length;
-        $('#selCount').toggleClass('d-none', n === 0).text(n + ' selected');
-    }
-    $(document).on('change', '#selAll', function () {
-        $('.row-check:not(:disabled)').prop('checked', this.checked);
-        refreshSelCount();
-    });
-    $(document).on('change', '.row-check', refreshSelCount);
+        // ---- row selection: select-all + live count on the Save button ----
+        function refreshSelCount() {
+            const n = $('.row-check:checked').length;
+            $('#selCount').toggleClass('d-none', n === 0).text(n + ' selected');
+        }
+        $(document).on('change', '#selAll', function () {
+            $('.row-check:not(:disabled)').prop('checked', this.checked);
+            refreshSelCount();
+        });
+        $(document).on('change', '.row-check', refreshSelCount);
 
-    function confirmSave() {
-        const n = $('.row-check:checked').length;
-        return n > 0
-            ? confirm('Save the ' + n + ' SELECTED row(s) of @d.ToString("yyyy-MM-dd") into the date-wise history?\n\n(Useless or IMO-less rows among them are skipped automatically.)')
-            : confirm('No rows are selected — save ALL your non-useless, IMO-matched rows of @d.ToString("yyyy-MM-dd") into the date-wise history?');
-    }
-
-        // "Load Data": confirm, then lock the button while the Python scraper runs on the server
-        function startLoadData(form) {
-            if (!confirm('Load Data will scrape ALL active source URLs from Ports Setup → Data Sources' +
-                         '@(string.IsNullOrEmpty(country) ? "" : $" (country: {country})")' +
-                         ' for import date @d.ToString("yyyy-MM-dd").\n\nThis can take several minutes. Continue?'))
-                return false;
-            const btn = document.getElementById('loadDataBtn');
-            btn.disabled = true;
-            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Scraping… please wait';
-            return true;
+        function confirmSave() {
+            const n = $('.row-check:checked').length;
+            return n > 0
+                ? confirm('Save the ' + n + ' SELECTED row(s) of @d.ToString("yyyy-MM-dd") into the date-wise history?\n\n(Useless or IMO-less rows among them are skipped automatically.)')
+                : confirm('No rows are selected — save ALL your non-useless, IMO-matched rows of @d.ToString("yyyy-MM-dd") into the date-wise history?');
         }
 
-        // V2 "Useless" button — real-time red highlight, no page reload, IMO added to global ignore list
-        $(document).on('click', '.useless-btn', function () {
-            const btn = $(this), id = btn.data('id'), nowUseless = btn.attr('data-useless') !== 'true';
-            $.post('@Url.Action("MarkUseless")', { scrapeId: id, useless: nowUseless, __RequestVerificationToken: af })
-                .done(function () {
-                    btn.attr('data-useless', nowUseless)
-                       .toggleClass('btn-danger', nowUseless).toggleClass('btn-outline-danger', !nowUseless)
-                       .text(nowUseless ? 'Useless ✓' : 'Useless');
-                    $('#row-' + id).toggleClass('useless-row', nowUseless);
-                });
-        });
+            // "Load Data": confirm, then lock the button while the Python scraper runs on the server
+            function startLoadData(form) {
+                if (!confirm('Load Data will scrape ALL active source URLs from Ports Setup → Data Sources' +
+                             '@(string.IsNullOrEmpty(country) ? "" : $" (country: {country})")' +
+                             ' for import date @d.ToString("yyyy-MM-dd").\n\nThis can take several minutes. Continue?'))
+                    return false;
+                const btn = document.getElementById('loadDataBtn');
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Scraping… please wait';
+                return true;
+            }
 
-        // Double-click IMO cell → prompt & link the row to an IMO
-        $(document).on('dblclick', '.imo-cell', function () {
-            const id = $(this).data('id');
-            const imo = prompt('Enter IMO number for this vessel:');
-            if (!imo) return;
-            $.post('@Url.Action("SetImo")', { scrapeId: id, imo: imo, __RequestVerificationToken: af })
-                .done(r => r.ok ? location.reload() : alert(r.message));
-        });
-    </script>
+            // V2 "Useless" button — real-time red highlight, no page reload, IMO added to global ignore list
+            $(document).on('click', '.useless-btn', function () {
+                const btn = $(this), id = btn.data('id'), nowUseless = btn.attr('data-useless') !== 'true';
+                $.post('@Url.Action("MarkUseless")', { scrapeId: id, useless: nowUseless, __RequestVerificationToken: af })
+                    .done(function () {
+                        btn.attr('data-useless', nowUseless)
+                           .toggleClass('btn-danger', nowUseless).toggleClass('btn-outline-danger', !nowUseless)
+                           .text(nowUseless ? 'Useless ✓' : 'Useless');
+                        $('#row-' + id).toggleClass('useless-row', nowUseless);
+                    });
+            });
+
+            // Double-click IMO cell → prompt & link the row to an IMO
+            $(document).on('dblclick', '.imo-cell', function () {
+                const id = $(this).data('id');
+                const imo = prompt('Enter IMO number for this vessel:');
+                if (!imo) return;
+                $.post('@Url.Action("SetImo")', { scrapeId: id, imo: imo, __RequestVerificationToken: af })
+                    .done(r => r.ok ? location.reload() : alert(r.message));
+            });
+    // "Load Data": confirm, then lock the button while the Python scraper runs on the server
+    function startLoadData(form) {
+        if (!confirm('Load Data will scrape ALL active source URLs from Ports Setup → Data Sources' +
+                     '@(string.IsNullOrEmpty(country) ? "" : $" (country: {country})")' +
+                     ' for import date @d.ToString("yyyy-MM-dd").\n\nThis can take several minutes. Continue?'))
+            return false;
+        const btn = document.getElementById('loadDataBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Scraping… please wait';
+        return true;
+    }
+
+    // V2 "Useless" button — real-time red highlight, no page reload, IMO added to global ignore list
+    $(document).on('click', '.useless-btn', function () {
+        const btn = $(this), id = btn.data('id'), nowUseless = btn.attr('data-useless') !== 'true';
+        $.post('@Url.Action("MarkUseless")', { scrapeId: id, useless: nowUseless, __RequestVerificationToken: af })
+            .done(function () {
+                btn.attr('data-useless', nowUseless)
+                   .toggleClass('btn-danger', nowUseless).toggleClass('btn-outline-danger', !nowUseless)
+                   .text(nowUseless ? 'Useless ✓' : 'Useless');
+                $('#row-' + id).toggleClass('useless-row', nowUseless);
+            });
+    });
+
+    // Double-click vessel NAME → open the Vessel Registration form (prefilled), per spec.
+    $(document).on('dblclick', '.vessel-name-cell', function () {
+        const name = $(this).data('name');
+        window.open('/Vessels/Register?name=' + encodeURIComponent(name || ''), '_blank');
+    });
+
+    // Double-click IMO cell → prompt & link the row to an IMO
+    $(document).on('dblclick', '.imo-cell', function () {
+        const id = $(this).data('id');
+        const imo = prompt('Enter IMO number for this vessel:');
+        if (!imo) return;
+        $.post('@Url.Action("SetImo")', { scrapeId: id, imo: imo, __RequestVerificationToken: af })
+            .done(r => r.ok ? location.reload() : alert(r.message));
+    });
+</script>
 }

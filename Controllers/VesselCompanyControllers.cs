@@ -14,24 +14,27 @@ namespace ShippingManagement.Web.Controllers
         public VesselsController(ShippingRepository repo, ExportService export)
         { _repo = repo; _export = export; }
 
-        public IActionResult Index(string? q, int? companyId, int? typeId, string? country, bool regularOnly = false)
+        public IActionResult Index(string? q, int? companyId, int? typeId, string? country, bool regularOnly = false, string? port = null)
         {
             ViewBag.Companies = _repo.GetAllCompanies().ToList();
             ViewBag.Types = _repo.GetVesselTypes().ToList();
             ViewBag.Countries = _repo.GetCountries().ToList();
+            ViewBag.Ports = _repo.GetDistinctPortNames().ToList();
             ViewBag.Q = q; ViewBag.CompanyId = companyId; ViewBag.TypeId = typeId;
-            ViewBag.Country = country; ViewBag.RegularOnly = regularOnly;
+            ViewBag.Country = country; ViewBag.RegularOnly = regularOnly; ViewBag.Port = port;
             var rows = _repo.SearchVessels(string.IsNullOrWhiteSpace(q) ? null : q,
-                                           companyId, country, typeId, regularOnly).ToList();
+                                           companyId, country, typeId, regularOnly, NullIfEmpty(port)).ToList();
             return View(rows);
         }
 
         [HttpGet]
-        public IActionResult Register(string? imo = null)
+        public IActionResult Register(string? imo = null, string? name = null)
         {
             ViewBag.Types = _repo.GetVesselTypes().ToList();
             ViewBag.Companies = _repo.GetAllCompanies().ToList();
-            Vessel model = imo is not null ? _repo.GetVesselByIMO(imo) ?? new Vessel { IMO_Number = imo } : new Vessel();
+            Vessel model = imo is not null
+                ? _repo.GetVesselByIMO(imo) ?? new Vessel { IMO_Number = imo, VesselName = name ?? "" }
+                : new Vessel { VesselName = name ?? "" };
             return View(model);
         }
 
@@ -67,14 +70,40 @@ namespace ShippingManagement.Web.Controllers
             return Json(new { ok = true, company = c });
         }
 
-        public IActionResult ExportExcel(string? q, int? companyId, int? typeId, string? country, bool regularOnly = false)
+        public IActionResult ExportExcel(string? q, int? companyId, int? typeId, string? country, bool regularOnly = false, string? port = null)
         {
             var rows = _repo.SearchVessels(string.IsNullOrWhiteSpace(q) ? null : q,
-                                           companyId, country, typeId, regularOnly).ToList();
+                                           companyId, country, typeId, regularOnly, NullIfEmpty(port)).ToList();
             var bytes = _export.VesselsExcel(rows);
             return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         $"Vessels_{DateTime.Now:yyyyMMdd_HHmm}.xlsx");
         }
+
+        public IActionResult ExportCsv(string? q, int? companyId, int? typeId, string? country, bool regularOnly = false, string? port = null)
+        {
+            var rows = _repo.SearchVessels(string.IsNullOrWhiteSpace(q) ? null : q,
+                                           companyId, country, typeId, regularOnly, NullIfEmpty(port)).ToList();
+            return File(System.Text.Encoding.UTF8.GetBytes(_export.VesselsCsv(rows)),
+                        "text/csv", $"Vessels_{DateTime.Now:yyyyMMdd_HHmm}.csv");
+        }
+
+        /// <summary>Print-friendly (PDF via browser print) vessel-wise report.</summary>
+        public IActionResult Print(string? q, int? companyId, int? typeId, string? country, bool regularOnly = false, string? port = null)
+        {
+            var rows = _repo.SearchVessels(string.IsNullOrWhiteSpace(q) ? null : q,
+                                           companyId, country, typeId, regularOnly, NullIfEmpty(port)).ToList();
+            ViewBag.Title = "Vessel-Wise Report";
+            ViewBag.Headers = new[] { "S.No", "Vessel", "IMO #", "Type", "Call Sign", "Company", "Port", "Country", "Terms", "Status" };
+            ViewBag.Rows = rows.Select((v, i) => new[]
+            {
+                (i + 1).ToString(), v.VesselName, v.IMO_Number, v.VesselType ?? "", v.CallSign ?? "",
+                v.CompanyName ?? "", v.Port ?? "", v.Country ?? "", v.Terms ?? "", v.Status
+            }).ToList();
+            ViewBag.RegularFlags = rows.Select(v => v.CustomerStatus == "Regular").ToList();
+            return View("ReportPrint");
+        }
+
+        private static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
     }
 
     /* ════════════════════ COMPANY REGISTRATION & FLEET ════════════════════ */
@@ -138,6 +167,28 @@ namespace ShippingManagement.Web.Controllers
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 $"CompanyFleet_{DateTime.Now:yyyyMMdd_HHmm}.xlsx");
         }
+
+        public IActionResult ExportCsv(string? q, bool regularOnly = false)
+        {
+            var rows = _repo.GetAllCompanies(string.IsNullOrWhiteSpace(q) ? null : q, regularOnly).ToList();
+            return File(System.Text.Encoding.UTF8.GetBytes(_export.CompaniesCsv(rows)),
+                "text/csv", $"CompanyFleet_{DateTime.Now:yyyyMMdd_HHmm}.csv");
+        }
+
+        /// <summary>Print-friendly (PDF via browser print) company fleet report.</summary>
+        public IActionResult Print(string? q, bool regularOnly = false)
+        {
+            var rows = _repo.GetAllCompanies(string.IsNullOrWhiteSpace(q) ? null : q, regularOnly).ToList();
+            ViewBag.Title = "Company Fleet Report";
+            ViewBag.Headers = new[] { "S.No", "Company", "Address", "Country", "General Email", "Website", "Telephone", "Fleet Size", "Status" };
+            ViewBag.Rows = rows.Select((c, i) => new[]
+            {
+                (i + 1).ToString(), c.CompanyName, c.Address ?? "", c.Country ?? "", c.GeneralEmail ?? "",
+                c.Website ?? "", c.Telephone ?? "", c.FleetCount.ToString(), c.Status
+            }).ToList();
+            ViewBag.RegularFlags = rows.Select(c => c.Status == "Regular").ToList();
+            return View("ReportPrint");
+        }
     }
 
     /* ════════════════════ REGULAR CUSTOMERS DASHBOARD (V2) ════════════════════ */
@@ -167,6 +218,29 @@ namespace ShippingManagement.Web.Controllers
             return File(_export.DailyReportSingleSheet(rows, "Regular Customers"),
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 $"RegularCustomers_{DateTime.Now:yyyyMMdd_HHmm}.xlsx");
+        }
+
+        public IActionResult ExportCsv()
+        {
+            var rows = _repo.GetArrivals(null, null, regularOnly: true).ToList();
+            return File(System.Text.Encoding.UTF8.GetBytes(_export.ArrivalsCsv(rows)),
+                "text/csv", $"RegularCustomers_{DateTime.Now:yyyyMMdd_HHmm}.csv");
+        }
+
+        /// <summary>Print-friendly (PDF via browser print) regular-customer report.</summary>
+        public IActionResult Print()
+        {
+            var rows = _repo.GetArrivals(null, null, regularOnly: true)
+                            .OrderByDescending(a => a.ArrivalDate).ToList();
+            ViewBag.Title = "Regular Customers Report";
+            ViewBag.Headers = new[] { "Date", "IMO #", "Vessel", "Type", "Port", "Country", "Company", "Status" };
+            ViewBag.Rows = rows.Select(a => new[]
+            {
+                a.ArrivalDate.ToString("yyyy-MM-dd"), a.IMO_Number ?? "", a.VesselName ?? "", a.VesselType ?? "",
+                a.PortName, a.Country, a.CompanyName ?? "", a.Status ?? ""
+            }).ToList();
+            ViewBag.RegularFlags = rows.Select(_ => true).ToList();
+            return View("ReportPrint");
         }
     }
 

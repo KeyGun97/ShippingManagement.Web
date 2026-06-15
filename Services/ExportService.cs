@@ -107,6 +107,57 @@ namespace ShippingManagement.Web.Services
             return sb.ToString();
         }
 
+        public string CompaniesCsv(IList<Company> rows)
+        {
+            string[] headers = { "S.No", "Company Name", "Address", "Country", "General Email", "Website", "Telephone", "Fleet Size", "Status" };
+            var sb = new StringBuilder();
+            sb.AppendLine(string.Join(",", headers.Select(Csv)));
+            for (int i = 0; i < rows.Count; i++)
+            {
+                var r = rows[i];
+                object?[] v = { i + 1, r.CompanyName, r.Address, r.Country, r.GeneralEmail, r.Website, r.Telephone, r.FleetCount, r.Status };
+                sb.AppendLine(string.Join(",", v.Select(x => Csv(x?.ToString()))));
+            }
+            return sb.ToString();
+        }
+
+        public string VesselsCsv(IList<Vessel> rows)
+        {
+            string[] headers = { "S.No", "Vessel Name", "IMO #", "Type", "Call Sign", "Company", "Customer Status", "Port", "ETA", "Country",
+                                 "Confirm Email", "Purchase Email", "Catering Email", "Generate Email", "Deck/Eng Email", "General Email", "Phone", "Terms", "Status" };
+            var sb = new StringBuilder();
+            sb.AppendLine(string.Join(",", headers.Select(Csv)));
+            for (int i = 0; i < rows.Count; i++)
+            {
+                var v = rows[i];
+                object?[] vals = { i + 1, v.VesselName, v.IMO_Number, v.VesselType, v.CallSign, v.CompanyName, v.CustomerStatus,
+                                   v.Port, v.ETA, v.Country, v.ConfirmEmail, v.PurchaseEmail, v.CateringEmail, v.GenerateEmail,
+                                   v.DeckEngEmail, v.GeneralEmail, v.PhoneNo, v.Terms, v.Status };
+                sb.AppendLine(string.Join(",", vals.Select(x => Csv(x?.ToString()))));
+            }
+            return sb.ToString();
+        }
+
+        /* ── Port-Wise report: one worksheet per port ───────────────────── */
+        public byte[] PortWiseExcel(IList<ArrivalLog> rows)
+        {
+            using var wb = new XLWorkbook();
+            var groups = rows.GroupBy(r => string.IsNullOrWhiteSpace(r.PortName) ? "(no port)" : r.PortName)
+                             .OrderBy(g => g.Key);
+            if (!groups.Any())
+                WriteSheet(wb.Worksheets.Add("Port-Wise"), rows);
+            else
+                foreach (var g in groups)
+                    WriteSheet(wb.Worksheets.Add(Trunc(SafeSheet(g.Key))), g.ToList());
+            return ToBytes(wb);
+        }
+
+        private static string SafeSheet(string s)
+        {
+            foreach (var ch in new[] { ':', '\\', '/', '?', '*', '[', ']' }) s = s.Replace(ch, ' ');
+            return string.IsNullOrWhiteSpace(s) ? "Sheet" : s;
+        }
+
         /* ── Internals ──────────────────────────────────────────────────── */
         private void WriteSheet(IXLWorksheet ws, IList<ArrivalLog> rows)
         {

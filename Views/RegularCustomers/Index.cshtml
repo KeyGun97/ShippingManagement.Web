@@ -7,7 +7,11 @@
 
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h4 class="mb-0"><i class="bi bi-star-fill text-primary"></i> Regular Customers Dashboard</h4>
-    <a asp-action="ExportExcel" class="btn btn-sm btn-success"><i class="bi bi-file-earmark-excel"></i> Export Excel</a>
+    <div class="btn-group">
+        <a asp-action="ExportExcel" class="btn btn-sm btn-success"><i class="bi bi-file-earmark-excel"></i> Excel</a>
+        <a asp-action="ExportCsv" class="btn btn-sm btn-outline-secondary">CSV</a>
+        <a asp-action="Print" target="_blank" class="btn btn-sm btn-outline-danger"><i class="bi bi-printer"></i> PDF</a>
+    </div>
 </div>
 
 <div class="row g-3 mb-3">
@@ -48,16 +52,17 @@
                         <a class="ms-2" asp-controller="Companies" asp-action="Details" asp-route-id="@c.CompanyID">Open company →</a>
                     </div>
                     <table class="table table-sm table-bordered mb-0">
-                        <thead class="table-light"><tr><th>IMO</th><th>Vessel</th><th>Type</th><th>Confirm Email</th><th>Purchase Email</th><th>Catering Email</th></tr></thead>
+                        <thead class="table-light"><tr><th>IMO</th><th>Vessel</th><th>Type</th><th>Current Port</th><th>ETA</th><th>Status</th><th>Confirm Email</th><th>Purchase Email</th><th>Catering Email</th></tr></thead>
                         <tbody>
                             @foreach (var v in fleet)
                             {
                                 <tr class="regular-customer">
                                     <td>@v.IMO_Number</td><td>@v.VesselName</td><td>@v.VesselType</td>
+                                    <td>@v.Port</td><td>@v.ETA</td><td><span class="badge bg-secondary">@v.Status</span></td>
                                     <td class="small">@v.ConfirmEmail</td><td class="small">@v.PurchaseEmail</td><td class="small">@v.CateringEmail</td>
                                 </tr>
                             }
-                            @if (fleet.Count == 0) { <tr><td colspan="6" class="text-muted text-center">No vessels.</td></tr> }
+                            @if (fleet.Count == 0) { <tr><td colspan="9" class="text-muted text-center">No vessels.</td></tr> }
                         </tbody>
                     </table>
                 </div>

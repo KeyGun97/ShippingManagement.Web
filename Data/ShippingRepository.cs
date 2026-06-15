@@ -1,7 +1,9 @@
-using System.Data;
 using Dapper;
+using DocumentFormat.OpenXml.Spreadsheet;
 using Microsoft.Data.SqlClient;
 using ShippingManagement.Web.Models;
+using System.Data;
+using System.Diagnostics.Metrics;
 
 namespace ShippingManagement.Web.Data
 {
@@ -9,9 +11,9 @@ namespace ShippingManagement.Web.Data
     {
         private readonly string _cs;
         string server = $"{Environment.MachineName}";
-
         public ShippingRepository(IConfiguration cfg) =>
-_cs = $"Server={server};Database=ShippingDB;Trusted_Connection=True;TrustServerCertificate=True";
+            //_cs = cfg.GetConnectionString("ShippingDB")
+            _cs = $"Server={server};Database=ShippingDB;Trusted_Connection=True;TrustServerCertificate=True";
 
         private IDbConnection Conn() => new SqlConnection(_cs);
 
@@ -63,7 +65,7 @@ _cs = $"Server={server};Database=ShippingDB;Trusted_Connection=True;TrustServerC
         }
 
         public IEnumerable<Vessel> SearchVessels(string? term, int? companyId = null, string? country = null,
-                                                 int? typeId = null, bool regularOnly = false)
+                                                 int? typeId = null, bool regularOnly = false, string? port = null)
         {
             const string sql = @"
                 SELECT v.*, vt.TypeName AS VesselType, c.CompanyName, c.Status AS CustomerStatus
@@ -74,12 +76,13 @@ _cs = $"Server={server};Database=ShippingDB;Trusted_Connection=True;TrustServerC
                   AND (@companyId IS NULL OR v.CompanyID = @companyId)
                   AND (@country IS NULL OR v.Country = @country OR v.Port LIKE '%'+@country+'%')
                   AND (@typeId IS NULL OR v.VesselTypeID = @typeId)
+                  AND (@port IS NULL OR v.Port = @port)
                   AND (@regOnly = 0 OR c.Status = 'Regular')
                 ORDER BY v.VesselName";
             using var c = Conn();
             return c.Query<Vessel>(sql, new
             {
-                term, like = $"%{term}%", companyId, country, typeId,
+                term, like = $"%{term}%", companyId, country, typeId, port,
                 regOnly = regularOnly ? 1 : 0
             });
         }
@@ -107,7 +110,7 @@ _cs = $"Server={server};Database=ShippingDB;Trusted_Connection=True;TrustServerC
                          @Country, @Address, @PhoneNo, @Terms, @ConfirmEmail, @GenerateEmail,
                          @DeckEngEmail, @CateringEmail, @PurchaseEmail, @GeneralEmail, @Status)
 
-                    UPDATE ScrapedData 
+                 UPDATE ScrapedData
                     SET IsMatched = 1
                     WHERE IMO_Number = @IMO_Number";
             using var c = Conn();
@@ -259,6 +262,22 @@ _cs = $"Server={server};Database=ShippingDB;Trusted_Connection=True;TrustServerC
             using var c = Conn();
             return c.Query<PortSource>("SELECT * FROM PortSources WHERE PortID=@portId ORDER BY SourceName", new { portId });
         }
+
+        /// <summary>All active source URLs with their port + country — feeds the Python scraper ("Load Data").</summary>
+        public IEnumerable<ScrapeSourceInfo> GetAllActiveSources(string? country = null)
+        {
+            const string sql = @"
+                SELECT s.SourceID, s.SourceName, s.Url, s.PageParamPattern, s.StartPage, s.EndPage,
+                       p.PortID, p.PortName, p.MaxPages, c.CountryName
+                FROM PortSources s
+                JOIN Ports p     ON p.PortID = s.PortID
+                JOIN Countries c ON c.CountryID = p.CountryID
+                WHERE s.IsActive = 1
+                  AND (@country IS NULL OR c.CountryName = @country)
+                ORDER BY c.CountryName, p.PortName, s.SourceName";
+            using var c2 = Conn();
+            return c2.Query<ScrapeSourceInfo>(sql, new { country });
+        }
         public void SavePortSource(PortSource s)
         {
             const string sql = @"
@@ -327,20 +346,19 @@ _cs = $"Server={server};Database=ShippingDB;Trusted_Connection=True;TrustServerC
                      Origin, VesselStatus, DataSource, Deadweight, GrossTonnage, VesselBuilt,
                      VesselType, VesselSize, IsMatched, IsUseless, AssignedUserID, ImportDate)
                 SELECT
-                     @VesselName, @IMO_Number, @PortID, @PortName, @Country, @ArrivalDate, @DepartureTime,
+                    @VesselName, @IMO_Number, @PortID, @PortName, @Country, @ArrivalDate, @DepartureTime,
                      @Origin, @VesselStatus, @DataSource, @Deadweight, @GrossTonnage, @VesselBuilt,
                      @VesselType, @VesselSize, @IsMatched,
-                     CASE WHEN @IMO_Number IS NOT NULL
-                               AND LEN(@IMO_Number) = 7 AND @IMO_Number NOT LIKE '%[^0-9]%'
-                               AND EXISTS (SELECT 1 FROM UselessVessels uv WHERE uv.IMO_Number=@IMO_Number)
+                     CASE WHEN @IMO_Number IS NOT NULL AND @IMO_Number NOT LIKE '%[^0-9]%' 
+                     AND EXISTS (SELECT 1 FROM UselessVessels uv WHERE uv.IMO_Number=@IMO_Number)
                           THEN 1 ELSE 0 END,
-                     @AssignedUserID, @ImportDate
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM ScrapedData d
-                    WHERE d.PortName = @PortName
-                      AND d.Country  = @Country
-                      AND ((@IMO_Number IS NOT NULL AND d.IMO_Number = @IMO_Number)
-                        OR (@IMO_Number IS NULL     AND d.IMO_Number IS NULL AND d.VesselName = @VesselName)))";
+                            @AssignedUserID, @ImportDate
+                       WHERE NOT EXISTS(
+                           SELECT 1 FROM ScrapedData d
+                           WHERE d.PortName = @PortName
+                                      AND d.Country = @Country
+                                      AND((@IMO_Number IS NOT NULL AND d.IMO_Number = @IMO_Number)
+                        OR(@IMO_Number IS NULL     AND d.IMO_Number IS NULL AND d.VesselName = @VesselName)))";
             using var c = Conn();
             c.Execute(sql, rows);
         }
@@ -348,18 +366,13 @@ _cs = $"Server={server};Database=ShippingDB;Trusted_Connection=True;TrustServerC
         /// <summary>Marks a row useless and adds its IMO to the global ignore list (per V2).</summary>
         public void MarkUseless(int scrapeId, bool useless, int markedBy)
         {
-            // Only VALID 7-digit IMOs go into the global UselessVessels list; junk values
-            // ('---', '0', '') would otherwise propagate "useless" to unrelated rows.
-            // Un-marking also removes the IMO from the global list so future scrapes are clean.
             const string sql = @"
                 UPDATE ScrapedData SET IsUseless=@useless WHERE ScrapeID=@scrapeId;
-                DECLARE @imo VARCHAR(15) = (SELECT IMO_Number FROM ScrapedData WHERE ScrapeID=@scrapeId);
-                IF @imo IS NOT NULL AND LEN(@imo) = 7 AND @imo NOT LIKE '%[^0-9]%'
+                IF @useless = 1
                 BEGIN
-                    IF @useless = 1 AND NOT EXISTS (SELECT 1 FROM UselessVessels WHERE IMO_Number=@imo)
+                    DECLARE @imo VARCHAR(15) = (SELECT IMO_Number FROM ScrapedData WHERE ScrapeID=@scrapeId);
+                    IF @imo IS NOT NULL AND NOT EXISTS (SELECT 1 FROM UselessVessels WHERE IMO_Number=@imo)
                         INSERT INTO UselessVessels (IMO_Number, MarkedBy) VALUES (@imo, @markedBy);
-                    IF @useless = 0
-                        DELETE FROM UselessVessels WHERE IMO_Number=@imo;
                 END";
             using var c = Conn();
             c.Execute(sql, new { scrapeId, useless, markedBy });
@@ -401,11 +414,6 @@ _cs = $"Server={server};Database=ShippingDB;Trusted_Connection=True;TrustServerC
         }
 
         /// <summary>Saves filtered (non-useless, matched-or-not) rows into the date-wise ArrivalLog history.</summary>
-        /// <summary>
-        /// Saves rows to date-wise ArrivalLog history and stamps them IsSaved=1 in ScrapedData.
-        /// selectedIds == null/empty -> classic behavior (all of the user's non-useless matched rows);
-        /// otherwise only the checkbox-selected rows are saved (still excluding useless/unmatched).
-        /// </summary>
         public (int Saved, int Unregistered) SaveFilteredToArrivalLog(int userId, DateTime importDate, IEnumerable<int>? selectedIds = null)
         {
             var ids = selectedIds?.Distinct().ToArray() ?? Array.Empty<int>();
@@ -513,6 +521,36 @@ _cs = $"Server={server};Database=ShippingDB;Trusted_Connection=True;TrustServerC
                 new { n = countryName }) > 0;
         }
 
+        /* ── Auto Emails ───────────────────────────────────────────────── */
+        public void InsertEmailLog(EmailLog e)
+        {
+            const string sql = @"
+                INSERT INTO EmailLog (Category, ToAddress, Subject, Body, IMO_Number, VesselName,
+                                      CompanyName, Status, ErrorText, SentBy)
+                VALUES (@Category, @ToAddress, @Subject, @Body, @IMO_Number, @VesselName,
+                        @CompanyName, @Status, @ErrorText, @SentBy)";
+            using var c = Conn();
+            c.Execute(sql, e);
+        }
+
+        public IEnumerable<EmailLog> GetEmailLog(int top = 100)
+        {
+            using var c = Conn();
+            return c.Query<EmailLog>(
+                "SELECT TOP (@top) * FROM EmailLog ORDER BY SentAt DESC", new { top });
+        }
+
+        /// <summary>Distinct port names (for Port filters and Port-Wise reports).</summary>
+        public IEnumerable<string> GetDistinctPortNames()
+        {
+            using var c = Conn();
+            return c.Query<string>(@"
+                SELECT PortName FROM Ports
+                UNION
+                SELECT DISTINCT PortName FROM ArrivalLog WHERE PortName IS NOT NULL
+                ORDER BY PortName");
+        }
+
         /* ── Dashboard counters ────────────────────────────────────────── */
         public (int vessels, int companies, int regulars, int todayArrivals) GetDashboardCounts()
         {
@@ -524,34 +562,17 @@ _cs = $"Server={server};Database=ShippingDB;Trusted_Connection=True;TrustServerC
                 SELECT COUNT(*) FROM ArrivalLog WHERE ArrivalDate = CAST(GETDATE() AS DATE);");
             return (multi.ReadSingle<int>(), multi.ReadSingle<int>(), multi.ReadSingle<int>(), multi.ReadSingle<int>());
         }
-        /// <summary>All active source URLs with their port + country — feeds the Python scraper ("Load Data").</summary>
-        public IEnumerable<ScrapeSourceInfo> GetAllActiveSources(string? country = null)
-        {
-            const string sql = @"
-                SELECT s.SourceID, s.SourceName, s.Url, s.PageParamPattern, s.StartPage, s.EndPage,
-                       p.PortID, p.PortName, p.MaxPages, c.CountryName
-                FROM PortSources s
-                JOIN Ports p     ON p.PortID = s.PortID
-                JOIN Countries c ON c.CountryID = p.CountryID
-                WHERE s.IsActive = 1
-                  AND (@country IS NULL OR c.CountryName = @country)
-                ORDER BY c.CountryName, p.PortName, s.SourceName";
-            using var c2 = Conn();
-            return c2.Query<ScrapeSourceInfo>(sql, new { country });
-        }
+        
         public List<VesselType> GetAllVesselTypes()
         {
-                using var conn = new SqlConnection(_cs);
-
-                const string sql = @"
+            using var conn = new SqlConnection(_cs);
+            const string sql = @"
             SELECT
                 TypeID,
                 TypeName
             FROM VesselTypes
             ORDER BY TypeName";
-
-                return conn.Query<VesselType>(sql).ToList();
+            return conn.Query<VesselType>(sql).ToList();
         }
-
     }
 }

@@ -18,6 +18,12 @@
                 <i class="bi bi-file-earmark-excel"></i> Excel (single sheet)</a>
             <a class="btn btn-sm btn-outline-success" asp-action="ExportTwoSheets" asp-route-date="@d.ToString("yyyy-MM-dd")" asp-route-country="@country">
                 Excel (Asia / Non-Asia)</a>
+            <a class="btn btn-sm btn-outline-primary" asp-action="ExportPortWise" asp-route-date="@d.ToString("yyyy-MM-dd")" asp-route-country="@country">
+                Port-Wise (Excel)</a>
+            <a class="btn btn-sm btn-outline-primary" asp-action="ExportPortWiseCsv" asp-route-date="@d.ToString("yyyy-MM-dd")" asp-route-country="@country">
+                Port-Wise (CSV)</a>
+            <a class="btn btn-sm btn-outline-primary" asp-action="PortWisePrint" asp-route-date="@d.ToString("yyyy-MM-dd")" asp-route-country="@country" target="_blank">
+                Port-Wise (PDF)</a>
             <a class="btn btn-sm btn-outline-secondary" asp-action="ExportCsv" asp-route-date="@d.ToString("yyyy-MM-dd")" asp-route-country="@country">CSV</a>
             <a class="btn btn-sm btn-outline-danger" asp-action="Print" asp-route-date="@d.ToString("yyyy-MM-dd")" asp-route-country="@country" target="_blank">
                 <i class="bi bi-printer"></i> PDF / Print</a>

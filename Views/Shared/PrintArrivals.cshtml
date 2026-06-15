@@ -1,0 +1,62 @@
+@model List<ShippingManagement.Web.Models.ArrivalLog>
+@{
+    Layout = null;
+    string title = ViewBag.Title ?? "Report";
+    string? subtitle = ViewBag.Subtitle;
+    bool portWise = ViewBag.PortWise ?? false;
+}
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>@title</title>
+    <style>
+        body { font-family:'Segoe UI',Arial,sans-serif; font-size:11px; margin:24px; color:#111; }
+        .rpt-head { display:flex; align-items:center; gap:10px; border-bottom:3px solid #22a6f2; padding-bottom:8px; margin-bottom:6px; }
+        .rpt-mark { width:34px; height:34px; border-radius:9px; background:linear-gradient(135deg,#22a6f2,#1ad1a5); color:#fff; display:flex; align-items:center; justify-content:center; font-size:18px; }
+        h2 { margin:0; color:#0d2438; } .sub { color:#555; margin-bottom:14px; }
+        h3 { margin:16px 0 4px; color:#143251; border-left:4px solid #22a6f2; padding-left:8px; }
+        table { width:100%; border-collapse:collapse; margin-bottom:6px; }
+        th,td { border:1px solid #aab4c0; padding:3px 5px; text-align:left; vertical-align:top; }
+        th { background:#0d2438; color:#fff; }
+        tr:nth-child(even) td { background:#f6f9fc; }
+        tr.regular td { background:#d6ecff; }
+        @@media print { .noprint { display:none; } }
+    </style>
+</head>
+<body onload="window.print()">
+    <div class="noprint" style="margin-bottom:10px">
+        <button onclick="window.print()">Print / Save as PDF</button>
+        <button onclick="window.close()">Close</button>
+    </div>
+    <div class="rpt-head"><div class="rpt-mark">&#9875;</div><h2>@title</h2></div>
+    <div class="sub">@subtitle &middot; @Model.Count record(s) &middot; Generated @DateTime.Now.ToString("yyyy-MM-dd HH:mm")</div>
+
+    @{
+        var grouped = portWise
+            ? Model.GroupBy(r => string.IsNullOrWhiteSpace(r.PortName) ? "(no port)" : r.PortName).OrderBy(g => g.Key)
+            : Model.GroupBy(_ => "");
+    }
+    @foreach (var g in grouped)
+    {
+        if (portWise) { <h3>@g.Key — @g.Count() arrival(s)</h3> }
+        <table>
+            <thead>
+                <tr><th>Date</th><th>IMO</th><th>Vessel</th><th>Type</th><th>Port</th><th>Country</th><th>Company</th><th>Status</th><th>Confirm Email</th><th>Purchase Email</th><th>Catering Email</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var a in g)
+                {
+                    <tr class="@(a.CustomerStatus == "Regular" ? "regular" : "")">
+                        <td>@a.ArrivalDate.ToString("yyyy-MM-dd")</td>
+                        <td>@a.IMO_Number</td><td>@a.VesselName</td><td>@a.VesselType</td>
+                        <td>@a.PortName</td><td>@a.Country</td><td>@a.CompanyName</td>
+                        <td>@(a.CustomerStatus == "Regular" ? "Regular" : "")</td>
+                        <td>@a.ConfirmEmail</td><td>@a.PurchaseEmail</td><td>@a.CateringEmail</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</body>
+</html>

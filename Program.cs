@@ -5,9 +5,6 @@ using ShippingManagement.Web.Infrastructure;
 using ShippingManagement.Web.Services;
 
 var builder = WebApplication.CreateBuilder(args);
-var server = $"{Environment.MachineName}";
-var connectionString =
-    $"Server={server};Database=ShippingDB;Trusted_Connection=True;TrustServerCertificate=True";
 
 // MVC + GLOBAL session-authorization filter → user session logic runs on EVERY component.
 builder.Services.AddControllersWithViews(options =>
@@ -31,6 +28,7 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<ShippingRepository>();
 builder.Services.AddSingleton<ExportService>();
 builder.Services.AddSingleton<ScraperService>();
+builder.Services.AddSingleton<EmailService>();
 
 var app = builder.Build();
 
@@ -52,8 +50,8 @@ app.MapControllerRoute(
 // ── First-run seeding: create default admin if Users table is empty ──────────
 try
 {
-    //var cs = app.Configuration.GetConnectionString("ShippingDB");
-    using var conn = new SqlConnection(connectionString);
+    var cs = app.Configuration.GetConnectionString("ShippingDB");
+    using var conn = new SqlConnection(cs);
     var count = conn.ExecuteScalar<int>("SELECT COUNT(*) FROM Users");
     if (count == 0)
     {

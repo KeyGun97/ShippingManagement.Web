@@ -92,15 +92,25 @@ Per the requirement "*put User session logic on each component*":
 
 ## 4. Design decisions & caveats
 
-- **Web scraping**: the old WinForms app ran Selenium (MyShipTracking / VesselFinder)
-  inside the UI. Browser automation inside a web server is fragile and against most
-  tracking sites' terms, so the web edition replaces it with **Admin → Import Data →
-  Upload**: paste rows (Tab/comma separated) or CSV content; IMO is auto-detected by
-  vessel name when missing; then **Auto Data** distributes rows to users by port
-  assignment. The Ports Setup module still stores every source URL + pagination
-  pattern, so an external scraper job (console app / scheduled task reusing the old
-  Selenium code) can write directly into the `ScrapedData` table if you want full
-  automation later.
+- **Web scraping — "Load Data" button**: Admin → Import Data → **Load Data** runs the
+  Python/Selenium scraper at `Scripts/scraper.py` (a generalized version of the original
+  MyShipTracking script). Flow:
+  1. The app collects **all active URLs** from Ports Setup → Data Sources
+     (optionally filtered by the country selected on the page) and writes them as a
+     config JSON, including each source's `{page}` pattern, Start/End page and the
+     port's Max Pages cap (first-50-pages rule).
+  2. It launches `python scraper.py config.json output.json`. The script scrapes each
+     URL headlessly (Chrome), keeps only **recent** rows (`Now / min / h / m / 4 d` —
+     same filter as the original script), and writes a combined JSON file.
+  3. The app reads that JSON, auto-detects missing IMOs by vessel name, inserts the
+     rows into `ScrapedData` (known-useless IMOs are auto-flagged), and the data
+     appears in the Import Data table. Run **Auto Data** to distribute it to users.
+
+  **Server prerequisites** for Load Data: Python 3 on PATH (or set
+  `Scraper:PythonPath` in `appsettings.json`), `pip install selenium`, and Google
+  Chrome — Selenium 4.6+ downloads the matching chromedriver automatically.
+  `Scraper:TimeoutMinutes` (default 15) kills runaway scrapes. The manual
+  **Upload Rows** page remains available as a fallback when scraping is blocked.
 - **PDF export** uses the print-optimized view + browser "Save as PDF" — zero extra
   dependencies, identical layout to the on-screen report.
 - This package was authored in an offline environment, so it ships as **source only**

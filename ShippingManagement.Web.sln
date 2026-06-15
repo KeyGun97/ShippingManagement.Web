@@ -1,9 +1,9 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
-VisualStudioVersion = 17.14.36915.13 d17.14
+VisualStudioVersion = 17.8.34330.188
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ShippingManagement.Web", "ShippingManagement.Web.csproj", "{76EB929E-6D65-D4A2-FB30-5449135B8FE7}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ShippingManagement.Web", "ShippingManagement.Web.csproj", "{1E6B1363-71BD-4421-9C25-FBB8248ED9FE}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -11,15 +11,15 @@ Global
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{76EB929E-6D65-D4A2-FB30-5449135B8FE7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{76EB929E-6D65-D4A2-FB30-5449135B8FE7}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{76EB929E-6D65-D4A2-FB30-5449135B8FE7}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{76EB929E-6D65-D4A2-FB30-5449135B8FE7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1E6B1363-71BD-4421-9C25-FBB8248ED9FE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1E6B1363-71BD-4421-9C25-FBB8248ED9FE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1E6B1363-71BD-4421-9C25-FBB8248ED9FE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1E6B1363-71BD-4421-9C25-FBB8248ED9FE}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
-		SolutionGuid = {DBC00202-6BC4-43AF-998B-810419307083}
+		SolutionGuid = {A0776F10-B332-4A98-B7D4-1FBD876587CF}
 	EndGlobalSection
 EndGlobal

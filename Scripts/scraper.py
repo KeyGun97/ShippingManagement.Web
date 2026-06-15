@@ -67,12 +67,25 @@ def scrape_source(driver, source: dict) -> list:
     rows_out = []
     start = int(source.get("startPage", 1) or 1)
     end = int(source.get("endPage", 1) or 1)
-    max_pages = int(source.get("maxPages", 50) or 50)   # "first 50 pages" rule
-    end = min(end, start + max_pages - 1)
+    max_pages = int(source.get("maxPages", 50) or 50)   # "first 50 pages" rule cap
     paged = bool((source.get("pageParamPattern") or "").strip())
-    last_page = end if paged else start
 
-    for page in range(start, last_page + 1):
+    # ── Two-phase pagination (per spec) ────────────────────────────────
+    # Phase 1: sweep the first `max_pages` pages (default 50) to capture bulk data.
+    # Phase 2: then continue with the configured page sequence (startPage..endPage).
+    # Pages are de-duplicated and visited in order.
+    if not paged:
+        page_sequence = [start]
+    else:
+        phase1 = list(range(1, max_pages + 1))                 # first 50 (or maxPages)
+        phase2 = list(range(start, end + 1))                   # the defined sequence
+        seen, page_sequence = set(), []
+        for p in phase1 + phase2:
+            if p not in seen:
+                seen.add(p)
+                page_sequence.append(p)
+
+    for page in page_sequence:
         url = page_url(source, page)
         try:
             driver.get(url)

@@ -181,7 +181,6 @@ CREATE TABLE dbo.ScrapedData (
     VesselSize    NVARCHAR(40)  NULL,
     IsMatched     BIT NOT NULL DEFAULT 0,
     IsUseless     BIT NOT NULL DEFAULT 0,        -- "Useless" button; excluded by all filters
-    IsSaved       BIT NOT NULL DEFAULT 0,        -- set when row was saved to ArrivalLog history
     AssignedUserID INT NULL REFERENCES dbo.Users(UserID),  -- set by Auto Data distribution
     ImportDate    DATE NOT NULL DEFAULT CAST(GETDATE() AS DATE),
     CreatedAt     DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
@@ -203,6 +202,25 @@ CREATE TABLE dbo.ArrivalLog (
     CreatedAt   DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
 );
 CREATE INDEX IX_Arrival_DateCountry ON dbo.ArrivalLog(ArrivalDate, Country);
+GO
+
+/* ───────────────────────── EMAIL LOG (Auto Emails module) ──────────────── */
+IF OBJECT_ID('dbo.EmailLog') IS NULL
+CREATE TABLE dbo.EmailLog (
+    EmailID     INT IDENTITY(1,1) PRIMARY KEY,
+    Category    NVARCHAR(40)  NOT NULL,          -- Confirm | Purchase | Catering | Generate | DeckEng | General
+    ToAddress   NVARCHAR(400) NOT NULL,
+    Subject     NVARCHAR(300) NULL,
+    Body        NVARCHAR(MAX) NULL,
+    IMO_Number  VARCHAR(15)   NULL,
+    VesselName  NVARCHAR(150) NULL,
+    CompanyName NVARCHAR(150) NULL,
+    Status      NVARCHAR(20)  NOT NULL DEFAULT 'Sent',  -- 'Sent' | 'Failed' | 'Logged'
+    ErrorText   NVARCHAR(500) NULL,
+    SentBy      INT NULL REFERENCES dbo.Users(UserID),
+    SentAt      DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+);
+CREATE INDEX IX_EmailLog_SentAt ON dbo.EmailLog(SentAt DESC);
 GO
 
 /* ───────────────────────── VIEWS ───────────────────────── */

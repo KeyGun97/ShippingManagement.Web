@@ -1,19 +1,20 @@
-@model List<ShippingManagement.Web.Models.ArrivalLog>
 @{
     Layout = null;
-    var d = (DateTime)ViewBag.Date;
-    string? country = ViewBag.Country;
+    var title = (string)(ViewBag.Title ?? "Report");
+    var headers = (string[])(ViewBag.Headers ?? new string[0]);
+    var rows = (List<string[]>)(ViewBag.Rows ?? new List<string[]>());
+    var flags = ViewBag.RegularFlags as List<bool>;
 }
 <!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8" />
-    <title>Daily Report @d.ToString("yyyy-MM-dd")</title>
+    <title>@title</title>
     <style>
         body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; margin: 24px; color: #111; }
         .rpt-head { display:flex; align-items:center; gap:10px; border-bottom:3px solid #22a6f2; padding-bottom:8px; margin-bottom:12px; }
         .rpt-mark { width:34px; height:34px; border-radius:9px; background:linear-gradient(135deg,#22a6f2,#1ad1a5); color:#fff; display:flex; align-items:center; justify-content:center; font-size:18px; }
-        h2 { margin: 0; color:#0d2438; } .sub { color: #555; margin-bottom: 14px; }
+        h2 { margin: 0; color:#0d2438; } .sub { color:#555; margin-bottom:12px; }
         table { width: 100%; border-collapse: collapse; }
         th, td { border: 1px solid #aab4c0; padding: 3px 5px; text-align: left; vertical-align: top; }
         th { background: #0d2438; color: #fff; }
@@ -29,22 +30,22 @@
     </div>
     <div class="rpt-head">
         <div class="rpt-mark">&#9875;</div>
-        <h2>Daily Arrival Report</h2>
+        <h2>@title</h2>
     </div>
-    <div class="sub">@d.ToString("dddd, dd MMMM yyyy") @(string.IsNullOrEmpty(country) ? "— All countries" : $"— {country}") &middot; @Model.Count arrival(s) &middot; Generated @DateTime.Now.ToString("yyyy-MM-dd HH:mm")</div>
+    <div class="sub">@rows.Count record(s) &middot; Generated @DateTime.Now.ToString("yyyy-MM-dd HH:mm")</div>
     <table>
         <thead>
-            <tr><th>IMO</th><th>Vessel</th><th>Type</th><th>Port</th><th>Country</th><th>Company</th><th>Confirm Email</th><th>Purchase Email</th><th>Catering Email</th></tr>
+            <tr>@foreach (var h in headers) { <th>@h</th> }</tr>
         </thead>
         <tbody>
-            @foreach (var a in Model)
+            @for (int i = 0; i < rows.Count; i++)
             {
-                <tr class="@(a.CustomerStatus == "Regular" ? "regular" : "")">
-                    <td>@a.IMO_Number</td><td>@a.VesselName</td><td>@a.VesselType</td>
-                    <td>@a.PortName</td><td>@a.Country</td><td>@a.CompanyName</td>
-                    <td>@a.ConfirmEmail</td><td>@a.PurchaseEmail</td><td>@a.CateringEmail</td>
+                var isReg = flags is not null && i < flags.Count && flags[i];
+                <tr class="@(isReg ? "regular" : "")">
+                    @foreach (var cell in rows[i]) { <td>@cell</td> }
                 </tr>
             }
+            @if (rows.Count == 0) { <tr><td colspan="@headers.Length" style="text-align:center;color:#888">No records.</td></tr> }
         </tbody>
     </table>
 </body>

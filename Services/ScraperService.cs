@@ -26,7 +26,6 @@ namespace ShippingManagement.Web.Services
 
         public ScrapeResult LoadData(DateTime importDate, string? country)
         {
-            List<VesselType> vesselTypes = _repo.GetAllVesselTypes().ToList();
             var sources = _repo.GetAllActiveSources(country).ToList();
             if (sources.Count == 0)
                 return new(false, "No active data-source URLs found. Add them in Ports Setup → Sources.", 0, 0);
@@ -62,7 +61,7 @@ namespace ShippingManagement.Web.Services
             string python = Val(_cfg["Scraper:PythonPath"], "python");
             string script = Val(_cfg["Scraper:ScriptPath"],
                                 Path.Combine(_env.ContentRootPath, "Scripts", "scraper.py"));
-            int timeoutMin = int.TryParse(_cfg["Scraper:TimeoutMinutes"], out var t) ? t : 30;
+            int timeoutMin = int.TryParse(_cfg["Scraper:TimeoutMinutes"], out var t) ? t : 15;
 
             if (!Path.IsPathRooted(script))
                 script = Path.Combine(_env.ContentRootPath, script);
@@ -134,46 +133,29 @@ namespace ShippingManagement.Web.Services
             foreach (var r in rows)
             {
                 if (string.IsNullOrWhiteSpace(r.VesselName)) continue;
-                string? imo = SanitizeImo(r.IMO_Number);                    // junk ('---','0','') -> null
-                imo ??= SanitizeImo(_repo.LookupIMOByVesselName(r.VesselName.Trim()));   // auto IMO detection by name
-                bool exists = vesselTypes.Any(v =>
-                    string.Equals(v.TypeName, r.VesselType,
-                  StringComparison.OrdinalIgnoreCase));
-
-                if (exists)
+                string? imo = string.IsNullOrWhiteSpace(r.IMO_Number) ? null : r.IMO_Number.Trim();
+                imo ??= _repo.LookupIMOByVesselName(r.VesselName.Trim());   // auto IMO detection by name
+                records.Add(new ScrapedRecord
                 {
-                    records.Add(new ScrapedRecord
-                    {
-                        VesselName = r.VesselName.Trim(),
-                        IMO_Number = imo,
-                        IsMatched = _repo.GetVesselByIMO(imo) != null,//imo is not null,
-                        PortID = r.PortID,
-                        PortName = r.PortName ?? "",
-                        Country = r.Country ?? "",
-                        ArrivalDate = r.ArrivalDate,
-                        Origin = r.Origin,
-                        VesselStatus = r.VesselStatus,
-                        VesselType = r.VesselType,
-                        DataSource = r.DataSource ?? "Scraper",
-                        ImportDate = importDate.Date
-                    });
-                }
-                
+                    VesselName = r.VesselName.Trim(),
+                    IMO_Number = imo,
+                    IsMatched = _repo.GetVesselByIMO(imo) != null,
+                    PortID = r.PortID,
+                    PortName = r.PortName ?? "",
+                    Country = r.Country ?? "",
+                    ArrivalDate = r.ArrivalDate,
+                    Origin = r.Origin,
+                    VesselStatus = r.VesselStatus,
+                    VesselType = r.VesselType,
+                    DataSource = r.DataSource ?? "Scraper",
+                    ImportDate = importDate.Date
+                });
             }
 
             _repo.InsertScrapedRows(records);   // useless IMOs auto-flagged on insert
             return new(true,
                 $"Load Data complete: {records.Count} row(s) imported from {sources.Count} source URL(s). " +
                 "Run Auto Data to distribute them to users.", records.Count, sources.Count);
-        }
-
-        /// <summary>A real IMO is exactly 7 digits — anything else ('---', '0', blanks) becomes null
-        /// so it can never collide in dedupe or match the global UselessVessels list.</summary>
-        private static string? SanitizeImo(string? raw)
-        {
-            if (string.IsNullOrWhiteSpace(raw)) return null;
-            var digits = new string(raw.Where(char.IsDigit).ToArray());
-            return digits.Length == 7 ? digits : null;
         }
 
         private static string Val(string? configured, string fallback) =>

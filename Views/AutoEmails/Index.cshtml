@@ -1,0 +1,168 @@
+@model List<ShippingManagement.Web.Models.ArrivalLog>
+@{
+    ViewData["Title"] = "Auto Emails";
+    var d = (DateTime)ViewBag.Date;
+    string? country = ViewBag.Country;
+    string category = ViewBag.Category;
+    bool regularOnly = ViewBag.RegularOnly;
+    bool smtp = ViewBag.SmtpEnabled;
+    var countries = (List<ShippingManagement.Web.Models.CountryItem>)ViewBag.Countries;
+    var categories = (string[])ViewBag.Categories;
+    var log = (List<ShippingManagement.Web.Models.EmailLog>)ViewBag.Log;
+
+    string? Addr(ShippingManagement.Web.Models.ArrivalLog a) => category switch
+    {
+        "Confirm"  => a.ConfirmEmail,
+        "Purchase" => a.PurchaseEmail,
+        "Catering" => a.CateringEmail,
+        "Generate" => a.GenerateEmail,
+        "DeckEng"  => a.DeckEngEmail,
+        _          => a.GeneralEmail ?? a.CompanyEmail
+    };
+    var withAddr = Model.Where(a => !string.IsNullOrWhiteSpace(Addr(a))).ToList();
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0"><i class="bi bi-envelope-paper"></i> Auto Emails
+        <span class="text-muted fs-6">(category-based vessel emails)</span>
+    </h4>
+    @if (smtp)
+    {
+        <span class="badge bg-success"><i class="bi bi-check-circle"></i> SMTP enabled</span>
+    }
+    else
+    {
+        <span class="badge bg-warning"><i class="bi bi-exclamation-triangle"></i> SMTP disabled — messages are logged only</span>
+    }
+</div>
+
+@if (!smtp)
+{
+    <div class="alert alert-light border small mb-3">
+        SMTP sending is currently <strong>off</strong>. Every message you send will be safely recorded in the log below so you can verify the workflow.
+        To send for real, set <code>Email:Enabled = true</code> and fill in the SMTP host / credentials in <code>appsettings.json</code>.
+    </div>
+}
+
+<form method="get" class="row g-2 align-items-end mb-3 no-print">
+    <div class="col-auto">
+        <label class="form-label small mb-0">Date</label>
+        <input type="date" name="date" value="@d.ToString("yyyy-MM-dd")" class="form-control form-control-sm" />
+    </div>
+    <div class="col-auto">
+        <label class="form-label small mb-0">Country</label>
+        <select name="country" class="form-select form-select-sm">
+            <option value="">All</option>
+            @foreach (var c in countries) { <option selected="@(country == c.CountryName)">@c.CountryName</option> }
+        </select>
+    </div>
+    <div class="col-auto">
+        <label class="form-label small mb-0">Email category</label>
+        <select name="category" class="form-select form-select-sm">
+            @foreach (var cat in categories) { <option selected="@(category == cat)">@cat</option> }
+        </select>
+    </div>
+    <div class="col-auto form-check ms-2">
+        <input type="checkbox" class="form-check-input" name="regularOnly" value="true" id="ro" checked="@regularOnly" />
+        <label class="form-check-label small" for="ro">Regular customers only</label>
+    </div>
+    <div class="col-auto"><button class="btn btn-sm btn-primary"><i class="bi bi-arrow-repeat"></i> Load recipients</button></div>
+</form>
+
+<div class="row g-3">
+    <div class="col-lg-5">
+        <div class="card">
+            <div class="card-header">Compose <span class="badge bg-primary ms-1">@category</span></div>
+            <div class="card-body">
+                <form method="post" asp-action="Send"
+                      onsubmit="return confirm('Send the @category email to @withAddr.Count recipient(s) for @d.ToString("yyyy-MM-dd")?');">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="date" value="@d.ToString("yyyy-MM-dd")" />
+                    <input type="hidden" name="country" value="@country" />
+                    <input type="hidden" name="category" value="@category" />
+                    <input type="hidden" name="regularOnly" value="@regularOnly.ToString().ToLower()" />
+
+                    <div class="mb-2">
+                        <label class="form-label small mb-0">Subject</label>
+                        <input name="subject" class="form-control form-control-sm" value="@ViewBag.DefaultSubject" required />
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small mb-0">Body</label>
+                        <textarea name="body" class="form-control" rows="9" required>@ViewBag.DefaultBody</textarea>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" name="htmlBody" value="true" id="html" />
+                        <label class="form-check-label small" for="html">Send as HTML</label>
+                    </div>
+                    <div class="form-text mb-2">
+                        Placeholders: <code>{Vessel}</code> <code>{IMO}</code> <code>{Port}</code>
+                        <code>{Country}</code> <code>{Company}</code> <code>{Date}</code>
+                    </div>
+                    <button class="btn btn-success @(withAddr.Count == 0 ? "disabled" : "")">
+                        <i class="bi bi-send"></i> Send to @withAddr.Count recipient(s)
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between">
+                <span>Recipients — @withAddr.Count of @Model.Count arrival(s) have a @category address</span>
+                <span class="small text-muted">@d.ToString("dd MMM yyyy")</span>
+            </div>
+            <div class="table-responsive" style="max-height:46vh">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead class="table-light sticky-top"><tr><th>Vessel</th><th>IMO</th><th>Port</th><th>Company</th><th>@category Email</th></tr></thead>
+                    <tbody>
+                        @foreach (var a in Model)
+                        {
+                            var addr = Addr(a);
+                            <tr class="@(a.CustomerStatus == "Regular" ? "regular-customer" : "") @(string.IsNullOrWhiteSpace(addr) ? "text-muted" : "")">
+                                <td class="fw-semibold">@a.VesselName</td>
+                                <td>@a.IMO_Number</td>
+                                <td>@a.PortName</td>
+                                <td>@a.CompanyName</td>
+                                <td class="small">
+                                    @if (string.IsNullOrWhiteSpace(addr))
+                                    { <span class="text-danger">— none —</span> }
+                                    else { @addr }
+                                </td>
+                            </tr>
+                        }
+                        @if (Model.Count == 0)
+                        { <tr><td colspan="5" class="text-center text-muted py-4">No arrivals for this date/country. Generate a Daily Report first.</td></tr> }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mt-3">
+    <div class="card-header">Recent Email Activity <span class="text-muted small">(latest @log.Count)</span></div>
+    <div class="table-responsive" style="max-height:40vh">
+        <table class="table table-sm table-hover mb-0">
+            <thead class="table-light sticky-top"><tr><th>When</th><th>Category</th><th>To</th><th>Vessel</th><th>Subject</th><th>Status</th></tr></thead>
+            <tbody>
+                @foreach (var e in log)
+                {
+                    <tr>
+                        <td class="small text-nowrap">@e.SentAt.ToString("yyyy-MM-dd HH:mm")</td>
+                        <td><span class="badge bg-secondary">@e.Category</span></td>
+                        <td class="small">@e.ToAddress</td>
+                        <td class="small">@e.VesselName</td>
+                        <td class="small">@e.Subject</td>
+                        <td>
+                            @if (e.Status == "Sent") { <span class="badge bg-success">Sent</span> }
+                            else if (e.Status == "Failed") { <span class="badge bg-danger" title="@e.ErrorText">Failed</span> }
+                            else { <span class="badge bg-info">Logged</span> }
+                        </td>
+                    </tr>
+                }
+                @if (log.Count == 0) { <tr><td colspan="6" class="text-center text-muted py-3">No emails sent yet.</td></tr> }
+            </tbody>
+        </table>
+    </div>
+</div>

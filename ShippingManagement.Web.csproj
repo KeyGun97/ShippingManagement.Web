@@ -10,4 +10,7 @@
     <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.1" />
     <PackageReference Include="ClosedXML" Version="0.102.2" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="Scripts\scraper.py" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

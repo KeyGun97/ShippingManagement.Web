@@ -1,27 +1,164 @@
-@{ ViewData["Title"] = "Login"; Layout = "_Layout"; }
+@{ ViewData["Title"] = "Sign in"; Layout = "_Layout"; }
+
 <div class="login-bg">
-    <div class="card login-card shadow-lg">
-        <div class="card-body p-4">
-            <div class="text-center mb-3">
-                <div style="font-size:42px;">⚓</div>
-                <h4 class="fw-bold mb-0">Shipping Management</h4>
-                <small class="text-muted">Sign in to start your session</small>
+
+    <!-- Animated ambient particles -->
+    <div class="login-particles" aria-hidden="true">
+        @for (int i = 0; i < 14; i++) { <span></span> }
+    </div>
+
+    <div class="login-shell">
+
+        <!-- ── Brand / story panel ── -->
+        <div class="login-brand">
+            <div class="radar" aria-hidden="true"></div>
+            <div class="sonar" aria-hidden="true">
+                <span class="ring"></span><span class="ring"></span><span class="ring"></span>
+                <span class="core"></span>
             </div>
-            @if (ViewBag.Error is string err)
-            { <div class="alert alert-danger py-2">@err</div> }
-            <form method="post" asp-action="Login">
-                @Html.AntiForgeryToken()
-                <input type="hidden" name="returnUrl" value="@ViewBag.ReturnUrl" />
-                <div class="mb-3">
-                    <label class="form-label">Username</label>
-                    <input name="username" class="form-control" autofocus required />
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">Password</label>
-                    <input name="password" type="password" class="form-control" required />
-                </div>
-                <button class="btn btn-primary w-100"><i class="bi bi-box-arrow-in-right"></i> Login</button>
-            </form>
+
+            <div class="brand-copy">
+                <div class="eyebrow up-1">Port &amp; Fleet Operations</div>
+                <h1 class="up-2">Shipping<br>Management System</h1>
+                <p class="up-3">Track vessels, ports and daily arrivals from a single command console.</p>
+                <ul class="login-feats up-4">
+                    <li><i class="bi bi-water"></i> Vessel &amp; company registration</li>
+                    <li><i class="bi bi-robot"></i> Automated port-data import</li>
+                    <li><i class="bi bi-file-earmark-bar-graph"></i> Daily &amp; master reporting</li>
+                </ul>
+            </div>
         </div>
+
+        <!-- ── Sign-in form ── -->
+        <div class="login-form-panel">
+            <div class="login-card card-body">
+                <div class="text-center mb-4 up-1">
+                    <div class="login-logo mb-3">
+                        <svg class="logo-mark" viewBox="0 0 64 64" width="62" height="62" role="img" aria-label="Shipping Management System logo">
+                            <defs>
+                                <linearGradient id="lmGrad" x1="0" y1="0" x2="1" y2="1">
+                                    <stop offset="0" stop-color="#2bb0fb" />
+                                    <stop offset="1" stop-color="#1ad1a5" />
+                                </linearGradient>
+                                <radialGradient id="lmGloss" cx="34%" cy="28%" r="75%">
+                                    <stop offset="0" stop-color="#ffffff" stop-opacity=".38" />
+                                    <stop offset="1" stop-color="#ffffff" stop-opacity="0" />
+                                </radialGradient>
+                            </defs>
+                            <circle cx="32" cy="32" r="30" fill="url(#lmGrad)" />
+                            <circle cx="32" cy="32" r="30" fill="url(#lmGloss)" />
+                            <circle cx="32" cy="32" r="27" fill="none" stroke="#ffffff" stroke-opacity=".25" stroke-width="1" />
+                            <g class="helm">
+                                <g fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round">
+                                    <circle cx="32" cy="32" r="15.5" stroke-width="3.2" />
+                                    <line x1="32" y1="10" x2="32" y2="54" />
+                                    <line x1="10" y1="32" x2="54" y2="32" />
+                                    <line x1="16.4" y1="16.4" x2="47.6" y2="47.6" />
+                                    <line x1="47.6" y1="16.4" x2="16.4" y2="47.6" />
+                                </g>
+                                <g fill="#ffffff">
+                                    <circle cx="54" cy="32" r="3" /><circle cx="47.6" cy="16.4" r="3" />
+                                    <circle cx="32" cy="10" r="3" /><circle cx="16.4" cy="16.4" r="3" />
+                                    <circle cx="10" cy="32" r="3" /><circle cx="16.4" cy="47.6" r="3" />
+                                    <circle cx="32" cy="54" r="3" /><circle cx="47.6" cy="47.6" r="3" />
+                                    <circle cx="32" cy="32" r="5.4" />
+                                </g>
+                            </g>
+                            <circle cx="32" cy="32" r="2.3" fill="url(#lmGrad)" />
+                        </svg>
+                    </div>
+                    <h4 class="mb-1">Welcome back</h4>
+                    <small class="text-muted">Sign in to start your session</small>
+                </div>
+
+                @if (ViewBag.Error is string err)
+                {
+                    <div class="alert alert-danger py-2 d-flex align-items-center gap-2 mb-3 shake">
+                        <i class="bi bi-exclamation-triangle-fill"></i><span>@err</span>
+                    </div>
+                }
+
+                <form method="post" asp-action="Login" id="loginForm">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="returnUrl" value="@ViewBag.ReturnUrl" />
+
+                    <div class="mb-3 up-2">
+                        <label class="form-label">Username</label>
+                        <div class="input-group login-ig">
+                            <span class="input-group-text"><i class="bi bi-person"></i></span>
+                            <input name="username" class="form-control"
+                                   placeholder="Enter your username" autocomplete="username" autofocus required />
+                        </div>
+                    </div>
+
+                    <div class="mb-2 up-3">
+                        <label class="form-label">Password</label>
+                        <div class="input-group login-ig">
+                            <span class="input-group-text"><i class="bi bi-lock"></i></span>
+                            <input name="password" id="pwd" type="password" class="form-control"
+                                   placeholder="Enter your password" autocomplete="current-password" required />
+                            <span class="input-group-text toggle" id="togglePwd" role="button"
+                                  tabindex="0" aria-label="Show password">
+                                <i class="bi bi-eye" id="pwdIcon"></i>
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-between align-items-center mb-3 up-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="remember" name="remember" value="true">
+                            <label class="form-check-label small text-muted" for="remember">Remember me</label>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-login w-100 up-4" id="loginBtn" type="submit">
+                        <span class="btn-text"><i class="bi bi-box-arrow-in-right me-1"></i> Sign in</span>
+                        <span class="btn-loading d-none">
+                            <span class="spinner-border me-1" role="status"></span> Signing in…
+                        </span>
+                    </button>
+                </form>
+
+                <p class="text-center text-muted small mt-4 mb-0 up-4">
+                    <i class="bi bi-shield-lock me-1"></i> Secured session · authorised users only
+                </p>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Animated waves at the bottom -->
+    <div class="login-waves" aria-hidden="true">
+        <svg viewBox="0 0 2880 240" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+            <path class="wave wave-1" d="M0 118.0 L12 119.9 L24 121.7 L36 123.6 L48 125.3 L60 127.0 L72 128.6 L84 130.0 L96 131.4 L108 132.6 L120 133.6 L132 134.4 L144 135.1 L156 135.6 L168 135.9 L180 136.0 L192 135.9 L204 135.6 L216 135.1 L228 134.4 L240 133.6 L252 132.6 L264 131.4 L276 130.0 L288 128.6 L300 127.0 L312 125.3 L324 123.6 L336 121.7 L348 119.9 L360 118.0 L372 116.1 L384 114.3 L396 112.4 L408 110.7 L420 109.0 L432 107.4 L444 106.0 L456 104.6 L468 103.4 L480 102.4 L492 101.6 L504 100.9 L516 100.4 L528 100.1 L540 100.0 L552 100.1 L564 100.4 L576 100.9 L588 101.6 L600 102.4 L612 103.4 L624 104.6 L636 106.0 L648 107.4 L660 109.0 L672 110.7 L684 112.4 L696 114.3 L708 116.1 L720 118.0 L732 119.9 L744 121.7 L756 123.6 L768 125.3 L780 127.0 L792 128.6 L804 130.0 L816 131.4 L828 132.6 L840 133.6 L852 134.4 L864 135.1 L876 135.6 L888 135.9 L900 136.0 L912 135.9 L924 135.6 L936 135.1 L948 134.4 L960 133.6 L972 132.6 L984 131.4 L996 130.0 L1008 128.6 L1020 127.0 L1032 125.3 L1044 123.6 L1056 121.7 L1068 119.9 L1080 118.0 L1092 116.1 L1104 114.3 L1116 112.4 L1128 110.7 L1140 109.0 L1152 107.4 L1164 106.0 L1176 104.6 L1188 103.4 L1200 102.4 L1212 101.6 L1224 100.9 L1236 100.4 L1248 100.1 L1260 100.0 L1272 100.1 L1284 100.4 L1296 100.9 L1308 101.6 L1320 102.4 L1332 103.4 L1344 104.6 L1356 106.0 L1368 107.4 L1380 109.0 L1392 110.7 L1404 112.4 L1416 114.3 L1428 116.1 L1440 118.0 L1452 119.9 L1464 121.7 L1476 123.6 L1488 125.3 L1500 127.0 L1512 128.6 L1524 130.0 L1536 131.4 L1548 132.6 L1560 133.6 L1572 134.4 L1584 135.1 L1596 135.6 L1608 135.9 L1620 136.0 L1632 135.9 L1644 135.6 L1656 135.1 L1668 134.4 L1680 133.6 L1692 132.6 L1704 131.4 L1716 130.0 L1728 128.6 L1740 127.0 L1752 125.3 L1764 123.6 L1776 121.7 L1788 119.9 L1800 118.0 L1812 116.1 L1824 114.3 L1836 112.4 L1848 110.7 L1860 109.0 L1872 107.4 L1884 106.0 L1896 104.6 L1908 103.4 L1920 102.4 L1932 101.6 L1944 100.9 L1956 100.4 L1968 100.1 L1980 100.0 L1992 100.1 L2004 100.4 L2016 100.9 L2028 101.6 L2040 102.4 L2052 103.4 L2064 104.6 L2076 106.0 L2088 107.4 L2100 109.0 L2112 110.7 L2124 112.4 L2136 114.3 L2148 116.1 L2160 118.0 L2172 119.9 L2184 121.7 L2196 123.6 L2208 125.3 L2220 127.0 L2232 128.6 L2244 130.0 L2256 131.4 L2268 132.6 L2280 133.6 L2292 134.4 L2304 135.1 L2316 135.6 L2328 135.9 L2340 136.0 L2352 135.9 L2364 135.6 L2376 135.1 L2388 134.4 L2400 133.6 L2412 132.6 L2424 131.4 L2436 130.0 L2448 128.6 L2460 127.0 L2472 125.3 L2484 123.6 L2496 121.7 L2508 119.9 L2520 118.0 L2532 116.1 L2544 114.3 L2556 112.4 L2568 110.7 L2580 109.0 L2592 107.4 L2604 106.0 L2616 104.6 L2628 103.4 L2640 102.4 L2652 101.6 L2664 100.9 L2676 100.4 L2688 100.1 L2700 100.0 L2712 100.1 L2724 100.4 L2736 100.9 L2748 101.6 L2760 102.4 L2772 103.4 L2784 104.6 L2796 106.0 L2808 107.4 L2820 109.0 L2832 110.7 L2844 112.4 L2856 114.3 L2868 116.1 L2880 118.0 L2880 240 L0 240 Z" />
+            <path class="wave wave-2" d="M0 174.0 L12 173.3 L24 171.6 L36 169.0 L48 165.5 L60 161.4 L72 156.7 L84 151.8 L96 146.8 L108 141.9 L120 137.4 L132 133.4 L144 130.2 L156 127.8 L168 126.4 L180 126.0 L192 126.7 L204 128.4 L216 131.0 L228 134.5 L240 138.6 L252 143.3 L264 148.2 L276 153.2 L288 158.1 L300 162.6 L312 166.6 L324 169.8 L336 172.2 L348 173.6 L360 174.0 L372 173.3 L384 171.6 L396 169.0 L408 165.5 L420 161.4 L432 156.7 L444 151.8 L456 146.8 L468 141.9 L480 137.4 L492 133.4 L504 130.2 L516 127.8 L528 126.4 L540 126.0 L552 126.7 L564 128.4 L576 131.0 L588 134.5 L600 138.6 L612 143.3 L624 148.2 L636 153.2 L648 158.1 L660 162.6 L672 166.6 L684 169.8 L696 172.2 L708 173.6 L720 174.0 L732 173.3 L744 171.6 L756 169.0 L768 165.5 L780 161.4 L792 156.7 L804 151.8 L816 146.8 L828 141.9 L840 137.4 L852 133.4 L864 130.2 L876 127.8 L888 126.4 L900 126.0 L912 126.7 L924 128.4 L936 131.0 L948 134.5 L960 138.6 L972 143.3 L984 148.2 L996 153.2 L1008 158.1 L1020 162.6 L1032 166.6 L1044 169.8 L1056 172.2 L1068 173.6 L1080 174.0 L1092 173.3 L1104 171.6 L1116 169.0 L1128 165.5 L1140 161.4 L1152 156.7 L1164 151.8 L1176 146.8 L1188 141.9 L1200 137.4 L1212 133.4 L1224 130.2 L1236 127.8 L1248 126.4 L1260 126.0 L1272 126.7 L1284 128.4 L1296 131.0 L1308 134.5 L1320 138.6 L1332 143.3 L1344 148.2 L1356 153.2 L1368 158.1 L1380 162.6 L1392 166.6 L1404 169.8 L1416 172.2 L1428 173.6 L1440 174.0 L1452 173.3 L1464 171.6 L1476 169.0 L1488 165.5 L1500 161.4 L1512 156.7 L1524 151.8 L1536 146.8 L1548 141.9 L1560 137.4 L1572 133.4 L1584 130.2 L1596 127.8 L1608 126.4 L1620 126.0 L1632 126.7 L1644 128.4 L1656 131.0 L1668 134.5 L1680 138.6 L1692 143.3 L1704 148.2 L1716 153.2 L1728 158.1 L1740 162.6 L1752 166.6 L1764 169.8 L1776 172.2 L1788 173.6 L1800 174.0 L1812 173.3 L1824 171.6 L1836 169.0 L1848 165.5 L1860 161.4 L1872 156.7 L1884 151.8 L1896 146.8 L1908 141.9 L1920 137.4 L1932 133.4 L1944 130.2 L1956 127.8 L1968 126.4 L1980 126.0 L1992 126.7 L2004 128.4 L2016 131.0 L2028 134.5 L2040 138.6 L2052 143.3 L2064 148.2 L2076 153.2 L2088 158.1 L2100 162.6 L2112 166.6 L2124 169.8 L2136 172.2 L2148 173.6 L2160 174.0 L2172 173.3 L2184 171.6 L2196 169.0 L2208 165.5 L2220 161.4 L2232 156.7 L2244 151.8 L2256 146.8 L2268 141.9 L2280 137.4 L2292 133.4 L2304 130.2 L2316 127.8 L2328 126.4 L2340 126.0 L2352 126.7 L2364 128.4 L2376 131.0 L2388 134.5 L2400 138.6 L2412 143.3 L2424 148.2 L2436 153.2 L2448 158.1 L2460 162.6 L2472 166.6 L2484 169.8 L2496 172.2 L2508 173.6 L2520 174.0 L2532 173.3 L2544 171.6 L2556 169.0 L2568 165.5 L2580 161.4 L2592 156.7 L2604 151.8 L2616 146.8 L2628 141.9 L2640 137.4 L2652 133.4 L2664 130.2 L2676 127.8 L2688 126.4 L2700 126.0 L2712 126.7 L2724 128.4 L2736 131.0 L2748 134.5 L2760 138.6 L2772 143.3 L2784 148.2 L2796 153.2 L2808 158.1 L2820 162.6 L2832 166.6 L2844 169.8 L2856 172.2 L2868 173.6 L2880 174.0 L2880 240 L0 240 Z" />
+            <path class="wave wave-3" d="M0 186.8 L12 183.7 L24 180.6 L36 177.5 L48 174.6 L60 172.0 L72 169.6 L84 167.6 L96 166.0 L108 164.9 L120 164.2 L132 164.0 L144 164.3 L156 165.1 L168 166.3 L180 168.0 L192 170.1 L204 172.5 L216 175.2 L228 178.1 L240 181.2 L252 184.3 L264 187.4 L276 190.5 L288 193.4 L300 196.0 L312 198.4 L324 200.4 L336 202.0 L348 203.1 L360 203.8 L372 204.0 L384 203.7 L396 202.9 L408 201.7 L420 200.0 L432 197.9 L444 195.5 L456 192.8 L468 189.9 L480 186.8 L492 183.7 L504 180.6 L516 177.5 L528 174.6 L540 172.0 L552 169.6 L564 167.6 L576 166.0 L588 164.9 L600 164.2 L612 164.0 L624 164.3 L636 165.1 L648 166.3 L660 168.0 L672 170.1 L684 172.5 L696 175.2 L708 178.1 L720 181.2 L732 184.3 L744 187.4 L756 190.5 L768 193.4 L780 196.0 L792 198.4 L804 200.4 L816 202.0 L828 203.1 L840 203.8 L852 204.0 L864 203.7 L876 202.9 L888 201.7 L900 200.0 L912 197.9 L924 195.5 L936 192.8 L948 189.9 L960 186.8 L972 183.7 L984 180.6 L996 177.5 L1008 174.6 L1020 172.0 L1032 169.6 L1044 167.6 L1056 166.0 L1068 164.9 L1080 164.2 L1092 164.0 L1104 164.3 L1116 165.1 L1128 166.3 L1140 168.0 L1152 170.1 L1164 172.5 L1176 175.2 L1188 178.1 L1200 181.2 L1212 184.3 L1224 187.4 L1236 190.5 L1248 193.4 L1260 196.0 L1272 198.4 L1284 200.4 L1296 202.0 L1308 203.1 L1320 203.8 L1332 204.0 L1344 203.7 L1356 202.9 L1368 201.7 L1380 200.0 L1392 197.9 L1404 195.5 L1416 192.8 L1428 189.9 L1440 186.8 L1452 183.7 L1464 180.6 L1476 177.5 L1488 174.6 L1500 172.0 L1512 169.6 L1524 167.6 L1536 166.0 L1548 164.9 L1560 164.2 L1572 164.0 L1584 164.3 L1596 165.1 L1608 166.3 L1620 168.0 L1632 170.1 L1644 172.5 L1656 175.2 L1668 178.1 L1680 181.2 L1692 184.3 L1704 187.4 L1716 190.5 L1728 193.4 L1740 196.0 L1752 198.4 L1764 200.4 L1776 202.0 L1788 203.1 L1800 203.8 L1812 204.0 L1824 203.7 L1836 202.9 L1848 201.7 L1860 200.0 L1872 197.9 L1884 195.5 L1896 192.8 L1908 189.9 L1920 186.8 L1932 183.7 L1944 180.6 L1956 177.5 L1968 174.6 L1980 172.0 L1992 169.6 L2004 167.6 L2016 166.0 L2028 164.9 L2040 164.2 L2052 164.0 L2064 164.3 L2076 165.1 L2088 166.3 L2100 168.0 L2112 170.1 L2124 172.5 L2136 175.2 L2148 178.1 L2160 181.2 L2172 184.3 L2184 187.4 L2196 190.5 L2208 193.4 L2220 196.0 L2232 198.4 L2244 200.4 L2256 202.0 L2268 203.1 L2280 203.8 L2292 204.0 L2304 203.7 L2316 202.9 L2328 201.7 L2340 200.0 L2352 197.9 L2364 195.5 L2376 192.8 L2388 189.9 L2400 186.8 L2412 183.7 L2424 180.6 L2436 177.5 L2448 174.6 L2460 172.0 L2472 169.6 L2484 167.6 L2496 166.0 L2508 164.9 L2520 164.2 L2532 164.0 L2544 164.3 L2556 165.1 L2568 166.3 L2580 168.0 L2592 170.1 L2604 172.5 L2616 175.2 L2628 178.1 L2640 181.2 L2652 184.3 L2664 187.4 L2676 190.5 L2688 193.4 L2700 196.0 L2712 198.4 L2724 200.4 L2736 202.0 L2748 203.1 L2760 203.8 L2772 204.0 L2784 203.7 L2796 202.9 L2808 201.7 L2820 200.0 L2832 197.9 L2844 195.5 L2856 192.8 L2868 189.9 L2880 186.8 L2880 240 L0 240 Z" />
+        </svg>
     </div>
 </div>
+
+@section Scripts {
+<script>
+    (function () {
+        const toggle = document.getElementById('togglePwd');
+        const pwd = document.getElementById('pwd');
+        const icon = document.getElementById('pwdIcon');
+        function flip() {
+            const show = pwd.type === 'password';
+            pwd.type = show ? 'text' : 'password';
+            icon.classList.toggle('bi-eye', !show);
+            icon.classList.toggle('bi-eye-slash', show);
+            toggle.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+        }
+        toggle.addEventListener('click', flip);
+        toggle.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } });
+
+        document.getElementById('loginForm').addEventListener('submit', function () {
+            const btn = document.getElementById('loginBtn');
+            btn.disabled = true;
+            btn.querySelector('.btn-text').classList.add('d-none');
+            btn.querySelector('.btn-loading').classList.remove('d-none');
+        });
+    })();
+</script>
+}

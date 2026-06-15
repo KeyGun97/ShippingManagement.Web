@@ -124,7 +124,7 @@ namespace ShippingManagement.Web.Controllers
             var result = _scraper.LoadData(d, string.IsNullOrWhiteSpace(country) ? null : country);
             if (result.Ok) TempData["Ok"] = result.Message;
             else TempData["Error"] = result.Message;
-            return RedirectToAction(nameof(Index), new { date = d, country});
+            return RedirectToAction(nameof(Index), new { date = d, country });
         }
 
         public IActionResult Index(DateTime? date, string? country, bool showUseless = false, bool applyFilter = false)
@@ -266,6 +266,30 @@ namespace ShippingManagement.Web.Controllers
         {
             var rows = _repo.GetArrivals(date, NullIfEmpty(country), excludeTagged: true).ToList();
             return Xlsx(_export.DailyReportTwoSheets(rows), $"DailyReport_AsiaSplit_{date:yyyyMMdd}.xlsx");
+        }
+
+        /// <summary>Port-Wise report: one worksheet per port for the selected date.</summary>
+        public IActionResult ExportPortWise(DateTime date, string? country)
+        {
+            var rows = _repo.GetArrivals(date, NullIfEmpty(country), excludeTagged: true).ToList();
+            return Xlsx(_export.PortWiseExcel(rows), $"PortWise_{date:yyyyMMdd}.xlsx");
+        }
+
+        public IActionResult ExportPortWiseCsv(DateTime date, string? country)
+        {
+            var rows = _repo.GetArrivals(date, NullIfEmpty(country), excludeTagged: true)
+                            .OrderBy(r => r.PortName).ToList();
+            return File(System.Text.Encoding.UTF8.GetBytes(_export.ArrivalsCsv(rows)),
+                        "text/csv", $"PortWise_{date:yyyyMMdd}.csv");
+        }
+
+        /// <summary>Port-Wise PDF (browser print) — arrivals ordered by port.</summary>
+        public IActionResult PortWisePrint(DateTime date, string? country)
+        {
+            ViewBag.Date = date; ViewBag.Country = country;
+            var rows = _repo.GetArrivals(date, NullIfEmpty(country), excludeTagged: true)
+                            .OrderBy(r => r.PortName).ToList();
+            return View("Print", rows);
         }
 
         public IActionResult ExportCsv(DateTime date, string? country)

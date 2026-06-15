@@ -145,6 +145,8 @@ namespace ShippingManagement.Web.Models
         public string? Website { get; set; }
         public string? CustomerStatus { get; set; }
     }
+
+    /// <summary>Active data-source row (source + port + country) passed to the Python scraper.</summary>
     public class ScrapeSourceInfo
     {
         public int SourceID { get; set; }
@@ -157,5 +159,22 @@ namespace ShippingManagement.Web.Models
         public string PortName { get; set; } = "";
         public int MaxPages { get; set; } = 50;
         public string CountryName { get; set; } = "";
+    }
+
+    /// <summary>Auto Emails — one sent/logged message record.</summary>
+    public class EmailLog
+    {
+        public int EmailID { get; set; }
+        public string Category { get; set; } = "General";
+        public string ToAddress { get; set; } = "";
+        public string? Subject { get; set; }
+        public string? Body { get; set; }
+        public string? IMO_Number { get; set; }
+        public string? VesselName { get; set; }
+        public string? CompanyName { get; set; }
+        public string Status { get; set; } = "Sent";   // Sent | Failed | Logged
+        public string? ErrorText { get; set; }
+        public int? SentBy { get; set; }
+        public DateTime SentAt { get; set; }
     }
 }
