@@ -48,8 +48,8 @@
         ("Vessel & Company Registration","bi-water","/Vessels","Register vessels by IMO, manage companies & fleets"),
         ("Import Data","bi-robot","/ImportData","Scraped port data, IMO matching, Useless handling, filtering"),
         ("Daily Report","bi-file-earmark-bar-graph","/DailyReport","Country/date report, single & Asia/Non-Asia exports"),
-        ("Master Data","bi-database","/MasterData","Country-wise, company-wise & IMO history tracking"),
-        ("Auto Emails","bi-envelope-paper","/AutoEmails","Send Confirm / Purchase / Catering & other emails to vessel contacts"),
+        @* ("Master Data","bi-database","/MasterData","Country-wise, company-wise & IMO history tracking"), *@
+        @* ("Auto Emails","bi-envelope-paper","/AutoEmails","Send Confirm / Purchase / Catering & other emails to vessel contacts"), *@
         @* ("Regular Customers","bi-star-fill","/RegularCustomers","Dedicated dashboard for regular customers & their fleets"), *@
     })
     {
@@ -70,7 +70,7 @@
             </a>
         </div>
     }
-    @if (isAdmin)
+    @* @if (isAdmin)
     {
         <div class="col-md-6 col-xl-4">
             <a href="/PortAssignments" class="text-decoration-none">
@@ -88,5 +88,5 @@
                 </div>
             </a>
         </div>
-    }
+    } *@
 </div>

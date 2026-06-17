@@ -24,14 +24,14 @@
                 <input type="hidden" name="country" value="@country" />
                 <button class="btn btn-sm btn-info fw-semibold" id="loadDataBtn" type="submit"
                         title="Scrapes every active URL from Ports Setup → Data Sources and loads the results below">
-                    <i class="bi bi-globe"></i> Load Data
+                    <i class="bi bi-globe"></i> Fetch Data
                 </button>
             </form>
             @* <a asp-action="Upload" class="btn btn-sm btn-outline-primary"><i class="bi bi-upload"></i> Upload Rows</a> *@
             <form asp-controller="PortAssignments" asp-action="AutoData" method="post" class="d-inline">
                 @Html.AntiForgeryToken()
                 <input type="hidden" name="importDate" value="@d.ToString("yyyy-MM-dd")" />
-                <button class="btn btn-sm btn-warning"><i class="bi bi-lightning-charge"></i> Auto Data (@d.ToString("dd MMM"))</button>
+                <button class="btn btn-sm btn-warning"><i class="bi bi-lightning-charge"></i> Assign Data (@d.ToString("dd MMM"))</button>
             </form>
         }
         <form asp-action="SaveFiltered" method="post" class="d-inline" id="saveForm"
@@ -67,7 +67,7 @@
         <input type="checkbox" class="form-check-input" name="showUseless" value="true" id="su" checked="@showUseless" />
         <label class="form-check-label small" for="su">Show useless rows</label>
     </div>
-    <div class="col-auto"><button class="btn btn-sm btn-primary">Load</button></div>
+    <div class="col-auto"><button class="btn btn-sm btn-primary">Filter</button></div>
 </form>
 
 <div class="card">
