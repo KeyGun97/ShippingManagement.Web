@@ -11,7 +11,7 @@ config.json (written by the app from Ports Setup -> Data Sources):
     {
       "sourceId": 1,
       "sourceName": "MyShipTracking",
-      "portId": 3,
+      "portId": 3,B
       "portName": "Houston",
       "country": "United States",
       "url": "https://myshiptracking.com/vessels?side=false&name=&destination=Houston&visible=vname,imo,vtype,area,speed,destination,received",
