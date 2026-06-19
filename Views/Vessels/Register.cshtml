@@ -60,6 +60,10 @@
     <div class="col-md-3"><label class="form-label">Port</label><input asp-for="Port" id="Port" class="form-control" /></div>
     <div class="col-md-2"><label class="form-label">ETA</label><input asp-for="ETA" id="ETA" class="form-control" /></div>
     <div class="col-md-3"><label class="form-label">Country</label><input asp-for="Country" id="Country" class="form-control" /></div>
+    <div class="col-md-3">
+        <label class="form-label">Origin <span class="text-muted">(from import, read-only)</span></label>
+        <input id="Origin" class="form-control" value="@ViewBag.Origin" readonly />
+    </div>
     <div class="col-md-2"><label class="form-label">Phone No</label><input asp-for="PhoneNo" id="PhoneNo" class="form-control" /></div>
     <div class="col-md-2">
         <label class="form-label">Terms</label>

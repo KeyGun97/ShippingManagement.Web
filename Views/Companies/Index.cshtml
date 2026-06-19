@@ -38,7 +38,14 @@
             <td><a asp-action="Details" asp-route-id="@c.CompanyID">@c.CompanyName</a></td>
             <td>@c.Address</td><td>@c.Country</td><td>@c.GeneralEmail</td>
             <td>@c.Website</td><td>@c.Telephone</td>
-            <td class="text-center"><span class="badge bg-primary">@c.FleetCount</span></td>
+            <td class="text-center">
+                <a asp-controller="Vessels" asp-action="Index"
+                   asp-route-companyId="@c.CompanyID" asp-route-companyName="@c.CompanyName"
+                   class="text-decoration-none"
+                   title="View the @c.FleetCount vessel(s) registered to @c.CompanyName">
+                    <span class="badge bg-primary">@c.FleetCount</span>
+                </a>
+            </td>
             <td>
                 @if (c.Status == "Regular") { <span class="badge bg-info text-dark"><i class="bi bi-star-fill"></i> Regular</span> }
                 else { <span class="badge bg-secondary">Non-Regular</span> }

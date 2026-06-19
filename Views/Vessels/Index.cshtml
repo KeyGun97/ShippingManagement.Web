@@ -25,11 +25,13 @@
 <form method="get" class="row g-2 mb-3 no-print">
     <div class="col-md-3"><input name="q" value="@ViewBag.Q" class="form-control" placeholder="Vessel name or IMO #" /></div>
     <div class="col-md-2">
-        <select name="companyId" class="form-select">
-            <option value="">All Companies</option>
+        <input list="companyFilterList" name="companyName" id="companyNameFilter"
+               value="@ViewBag.CompanyName" class="form-control" placeholder="Company name…" autocomplete="off" />
+        <input type="hidden" name="companyId" id="companyIdFilter" value="@ViewBag.CompanyId" />
+        <datalist id="companyFilterList">
             @foreach (Company c in ViewBag.Companies)
-            { <option value="@c.CompanyID" selected="@(ViewBag.CompanyId == c.CompanyID)">@c.CompanyName</option> }
-        </select>
+            { <option data-id="@c.CompanyID" value="@c.CompanyName"></option> }
+        </datalist>
     </div>
     <div class="col-md-2">
         <select name="typeId" class="form-select">
@@ -91,3 +93,26 @@
 </table>
 </div></div>
 <p class="text-muted small mt-2"><span class="badge" style="background:#cfe2ff;color:#000">blue rows</span> = vessels of Regular Customers.</p>
+
+@section Scripts {
+<script>
+// Keep the hidden companyId in sync with the company-name text box.
+// (Server also resolves name → id, so filtering still works if JS is off.)
+(function () {
+    var nameBox = document.getElementById("companyNameFilter");
+    var idBox   = document.getElementById("companyIdFilter");
+    var list    = document.getElementById("companyFilterList");
+    if (!nameBox || !idBox || !list) return;
+
+    function syncId() {
+        var typed = nameBox.value.trim().toLowerCase();
+        var match = Array.prototype.find.call(list.options, function (o) {
+            return o.value.trim().toLowerCase() === typed;
+        });
+        idBox.value = match ? (match.getAttribute("data-id") || "") : "";
+    }
+    nameBox.addEventListener("input", syncId);
+    nameBox.addEventListener("change", syncId);
+})();
+</script>
+}

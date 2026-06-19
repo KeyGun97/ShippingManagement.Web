@@ -85,7 +85,7 @@
                     <th>Port</th>
                     <th>Country</th>
                     <th>Arrival</th>
-                    <th>Departure</th>
+                    <th>Vessel Type</th>
                     <th>Origin</th>
                     @* <th>Status</th> *@
                     @if (isAdmin)
@@ -106,10 +106,23 @@
                                    value="@r.ScrapeID" form="saveForm" @(r.IsUseless ? "disabled" : "") />
                         </td>
                         <td class="fw-semibold">@r.VesselName</td>
-                        <td class="imo-cell" data-id="@r.ScrapeID" title="Double-click to set IMO">
-                            @if (r.IMO_Number is not null)
+                        <td class="imo-cell" data-id="@r.ScrapeID" title="Double-click to set/correct IMO">
+                            @if (r.IMO_Number is not null && @r.IsMatched == false)
                             {
-                                <a asp-controller="MasterData" asp-action="History" asp-route-imo="@r.IMO_Number">@r.IMO_Number</a>
+                                <a asp-controller="Vessels" asp-action="Register"
+                                   asp-route-imo="@r.IMO_Number"
+                                   asp-route-name="@r.VesselName"
+                                   asp-route-port="@r.PortName"
+                                   asp-route-country="@r.Country"
+                                   asp-route-vesselType="@r.VesselType"
+                                   asp-route-origin="@r.Origin"
+                                   title="Register this vessel — opens the form pre-filled (name, port, country, type, origin)">@r.IMO_Number</a>
+ 
+                            }
+                            else if (r.IMO_Number is not null && @r.IsMatched == true)
+                            {
+                                <a asp-controller="MasterData" asp-action="History"
+                                   asp-route-imo="@r.IMO_Number">@r.IMO_Number</a>
                             }
                             else
                             {
@@ -120,7 +133,7 @@
                         <td>@r.PortName</td>
                         <td>@r.Country</td>
                         <td class="small">@r.ArrivalDate</td>
-                        <td class="small">@r.DepartureTime</td>
+                        <td class="small">@r.VesselType</td>
                         <td class="small">@r.Origin</td>
                         @* <td class="small">@r.VesselStatus</td> *@
                         @if (isAdmin)

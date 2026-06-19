@@ -324,7 +324,9 @@ namespace ShippingManagement.Web.Data
                 LEFT JOIN Users u ON u.UserID = s.AssignedUserID
                 LEFT JOIN Vessels v ON v.IMO_Number = s.IMO_Number
                 LEFT JOIN Companies c ON c.CompanyID = v.CompanyID
-                WHERE (@userId IS NULL OR s.AssignedUserID = @userId)
+                WHERE
+                  s.VesselType IN (select distinct temp.TypeName from VesselTypes temp)
+                  AND (@userId IS NULL OR s.AssignedUserID = @userId)
                   AND (@importDate IS NULL OR s.ImportDate = @importDate)
                   AND (@country IS NULL OR s.Country = @country)
                   AND (@inclUseless = 1 OR s.IsUseless = 0)
@@ -358,7 +360,8 @@ namespace ShippingManagement.Web.Data
                            WHERE d.PortName = @PortName
                                       AND d.Country = @Country
                                       AND((@IMO_Number IS NOT NULL AND d.IMO_Number = @IMO_Number)
-                        OR(@IMO_Number IS NULL     AND d.IMO_Number IS NULL AND d.VesselName = @VesselName)))";
+                        OR(@IMO_Number IS NULL     AND d.IMO_Number IS NULL AND d.VesselName = @VesselName))
+                        AND @VesselType IN (select distinct temp.TypeName from VesselTypes temp))";
             using var c = Conn();
             c.Execute(sql, rows);
         }

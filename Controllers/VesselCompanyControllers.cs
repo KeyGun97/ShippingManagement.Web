@@ -14,13 +14,26 @@ namespace ShippingManagement.Web.Controllers
         public VesselsController(ShippingRepository repo, ExportService export)
         { _repo = repo; _export = export; }
 
-        public IActionResult Index(string? q, int? companyId, int? typeId, string? country, bool regularOnly = false, string? port = null)
+        public IActionResult Index(string? q, int? companyId, string? companyName, int? typeId, string? country, bool regularOnly = false, string? port = null)
         {
+            // Allow filtering by company NAME (typed into the text box, or carried from the
+            // Companies → fleet-count link). If an id wasn't supplied, resolve it from the name.
+            Company? company = null;
+            if (companyId is not null)
+                company = _repo.GetCompanyByID(companyId.Value);
+            else if (!string.IsNullOrWhiteSpace(companyName))
+            {
+                company = _repo.GetCompanyByName(companyName.Trim());
+                companyId = company?.CompanyID;
+            }
+            // Show the resolved company name in the text box (falls back to whatever was typed).
+            companyName = company?.CompanyName ?? companyName;
+
             ViewBag.Companies = _repo.GetAllCompanies().ToList();
             ViewBag.Types = _repo.GetVesselTypes().ToList();
             ViewBag.Countries = _repo.GetCountries().ToList();
             ViewBag.Ports = _repo.GetDistinctPortNames().ToList();
-            ViewBag.Q = q; ViewBag.CompanyId = companyId; ViewBag.TypeId = typeId;
+            ViewBag.Q = q; ViewBag.CompanyId = companyId; ViewBag.CompanyName = companyName; ViewBag.TypeId = typeId;
             ViewBag.Country = country; ViewBag.RegularOnly = regularOnly; ViewBag.Port = port;
             var rows = _repo.SearchVessels(string.IsNullOrWhiteSpace(q) ? null : q,
                                            companyId, country, typeId, regularOnly, NullIfEmpty(port)).ToList();
@@ -28,13 +41,34 @@ namespace ShippingManagement.Web.Controllers
         }
 
         [HttpGet]
-        public IActionResult Register(string? imo = null, string? name = null)
+        public IActionResult Register(string? imo = null, string? name = null,
+                                      string? port = null, string? country = null,
+                                      string? vesselType = null, string? origin = null)
         {
-            ViewBag.Types = _repo.GetVesselTypes().ToList();
+            var types = _repo.GetVesselTypes().ToList();
+            ViewBag.Types = types;
             ViewBag.Companies = _repo.GetAllCompanies().ToList();
+
             Vessel model = imo is not null
                 ? _repo.GetVesselByIMO(imo) ?? new Vessel { IMO_Number = imo, VesselName = name ?? "" }
                 : new Vessel { VesselName = name ?? "" };
+
+            // Pre-fill from imported/scraped details (e.g. opened from Import Data → IMO link).
+            // Only fill blanks so an already-registered vessel's saved data is never overwritten.
+            if (string.IsNullOrWhiteSpace(model.VesselName) && !string.IsNullOrWhiteSpace(name))
+                model.VesselName = name!.Trim();
+            if (string.IsNullOrWhiteSpace(model.Port) && !string.IsNullOrWhiteSpace(port))
+                model.Port = port.Trim();
+            if (string.IsNullOrWhiteSpace(model.Country) && !string.IsNullOrWhiteSpace(country))
+                model.Country = country.Trim();
+            if (model.VesselTypeID is null && !string.IsNullOrWhiteSpace(vesselType))
+            {
+                var match = types.FirstOrDefault(t =>
+                    string.Equals(t.TypeName, vesselType.Trim(), StringComparison.OrdinalIgnoreCase));
+                if (match is not null) { model.VesselTypeID = match.TypeID; model.VesselType = match.TypeName; }
+            }
+            // 'Origin' has no column on Vessel — surface it in the form as read-only info.
+            ViewBag.Origin = origin;
             return View(model);
         }
 
