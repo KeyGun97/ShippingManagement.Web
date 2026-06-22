@@ -324,7 +324,9 @@ namespace ShippingManagement.Web.Data
                 LEFT JOIN Users u ON u.UserID = s.AssignedUserID
                 LEFT JOIN Vessels v ON v.IMO_Number = s.IMO_Number
                 LEFT JOIN Companies c ON c.CompanyID = v.CompanyID
-                WHERE (@userId IS NULL OR s.AssignedUserID = @userId)
+                WHERE
+                  s.VesselType IN (select distinct temp.TypeName from VesselTypes temp)
+                  AND (@userId IS NULL OR s.AssignedUserID = @userId)
                   AND (@importDate IS NULL OR s.ImportDate = @importDate)
                   AND (@country IS NULL OR s.Country = @country)
                   AND (@inclUseless = 1 OR s.IsUseless = 0)
@@ -358,7 +360,8 @@ namespace ShippingManagement.Web.Data
                            WHERE d.PortName = @PortName
                                       AND d.Country = @Country
                                       AND((@IMO_Number IS NOT NULL AND d.IMO_Number = @IMO_Number)
-                        OR(@IMO_Number IS NULL     AND d.IMO_Number IS NULL AND d.VesselName = @VesselName)))";
+                        OR(@IMO_Number IS NULL     AND d.IMO_Number IS NULL AND d.VesselName = @VesselName))
+                        AND @VesselType IN (select distinct temp.TypeName from VesselTypes temp))";
             using var c = Conn();
             c.Execute(sql, rows);
         }
@@ -478,21 +481,27 @@ namespace ShippingManagement.Web.Data
 
         /* ── Arrival Log / Reports ─────────────────────────────────────── */
         public IEnumerable<ArrivalLog> GetArrivals(DateTime? date, string? country, bool excludeTagged = false,
-                                                   string? search = null, bool regularOnly = false, string? portName = null)
+                                                   string? search = null, bool regularOnly = false, string? portName = null,
+                                                   DateTime? dateFrom = null, DateTime? dateTo = null)
         {
+            // @date keeps the original single-day behaviour for existing callers.
+            // @dateFrom / @dateTo enable an (inclusive) date-range search for the Daily Report.
             const string sql = @"
                 SELECT * FROM vw_ArrivalDetail
                 WHERE (@date IS NULL OR ArrivalDate = @date)
+                  AND (@dateFrom IS NULL OR ArrivalDate >= @dateFrom)
+                  AND (@dateTo IS NULL OR ArrivalDate <= @dateTo)
                   AND (@country IS NULL OR Country = @country)
                   AND (@portName IS NULL OR PortName = @portName)
                   AND (@exclTagged = 0 OR IsTagged = 0)
                   AND (@search IS NULL OR VesselName LIKE @like OR IMO_Number LIKE @like OR CompanyName LIKE @like)
                   AND (@regOnly = 0 OR CustomerStatus = 'Regular')
-                ORDER BY CompanyName, VesselName";
+                ORDER BY ArrivalDate, CompanyName, VesselName";
             using var c = Conn();
             return c.Query<ArrivalLog>(sql, new
             {
-                date = date?.Date, country, portName,
+                date = date?.Date, dateFrom = dateFrom?.Date, dateTo = dateTo?.Date,
+                country, portName,
                 exclTagged = excludeTagged ? 1 : 0,
                 search, like = $"%{search}%",
                 regOnly = regularOnly ? 1 : 0
@@ -526,9 +535,9 @@ namespace ShippingManagement.Web.Data
         {
             const string sql = @"
                 INSERT INTO EmailLog (Category, ToAddress, Subject, Body, IMO_Number, VesselName,
-                                      CompanyName, Status, ErrorText, SentBy)
+                                      CompanyName, Status, ErrorText, SentBy, SentVia)
                 VALUES (@Category, @ToAddress, @Subject, @Body, @IMO_Number, @VesselName,
-                        @CompanyName, @Status, @ErrorText, @SentBy)";
+                        @CompanyName, @Status, @ErrorText, @SentBy, @SentVia)";
             using var c = Conn();
             c.Execute(sql, e);
         }
@@ -538,6 +547,49 @@ namespace ShippingManagement.Web.Data
             using var c = Conn();
             return c.Query<EmailLog>(
                 "SELECT TOP (@top) * FROM EmailLog ORDER BY SentAt DESC", new { top });
+        }
+
+        /* ── Email Templates (reusable subject/body presets) ───────────── */
+        public IEnumerable<EmailTemplate> GetEmailTemplates(string? category = null)
+        {
+            using var c = Conn();
+            return c.Query<EmailTemplate>(@"
+                SELECT * FROM EmailTemplates
+                WHERE (@category IS NULL OR Category IS NULL OR Category = @category)
+                ORDER BY Name", new { category });
+        }
+
+        public EmailTemplate? GetEmailTemplate(int id)
+        {
+            using var c = Conn();
+            return c.QueryFirstOrDefault<EmailTemplate>(
+                "SELECT * FROM EmailTemplates WHERE TemplateID=@id", new { id });
+        }
+
+        public void AddEmailTemplate(EmailTemplate t)
+        {
+            const string sql = @"
+                INSERT INTO EmailTemplates (Name, Category, Subject, Body, IsHtml)
+                VALUES (@Name, @Category, @Subject, @Body, @IsHtml)";
+            using var c = Conn();
+            c.Execute(sql, t);
+        }
+
+        public void UpdateEmailTemplate(EmailTemplate t)
+        {
+            const string sql = @"
+                UPDATE EmailTemplates
+                   SET Name=@Name, Category=@Category, Subject=@Subject,
+                       Body=@Body, IsHtml=@IsHtml, UpdatedAt=SYSUTCDATETIME()
+                 WHERE TemplateID=@TemplateID";
+            using var c = Conn();
+            c.Execute(sql, t);
+        }
+
+        public void DeleteEmailTemplate(int id)
+        {
+            using var c = Conn();
+            c.Execute("DELETE FROM EmailTemplates WHERE TemplateID=@id", new { id });
         }
 
         /// <summary>Distinct port names (for Port filters and Port-Wise reports).</summary>

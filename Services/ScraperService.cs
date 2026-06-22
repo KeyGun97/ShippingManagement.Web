@@ -1,7 +1,8 @@
-using System.Diagnostics;
-using System.Text.Json;
 using ShippingManagement.Web.Data;
 using ShippingManagement.Web.Models;
+using System.Diagnostics;
+using System.Numerics;
+using System.Text.Json;
 
 namespace ShippingManagement.Web.Services
 {
@@ -18,7 +19,8 @@ namespace ShippingManagement.Web.Services
         private readonly ShippingRepository _repo;
         private readonly IConfiguration _cfg;
         private readonly IWebHostEnvironment _env;
-
+        public string name = "";
+        public string imoMain = "";
         public ScraperService(ShippingRepository repo, IConfiguration cfg, IWebHostEnvironment env)
         { _repo = repo; _cfg = cfg; _env = env; }
 
@@ -135,26 +137,44 @@ namespace ShippingManagement.Web.Services
                 if (string.IsNullOrWhiteSpace(r.VesselName)) continue;
                 string? imo = string.IsNullOrWhiteSpace(r.IMO_Number) ? null : r.IMO_Number.Trim();
                 imo ??= _repo.LookupIMOByVesselName(r.VesselName.Trim());   // auto IMO detection by name
-                records.Add(new ScrapedRecord
+                if (!string.IsNullOrEmpty(r.VesselName.Trim()) && r.VesselName.Trim().Contains("\nIMO:"))
                 {
-                    VesselName = r.VesselName.Trim(),
-                    IMO_Number = imo,
-                    IsMatched = _repo.GetVesselByIMO(imo) != null,
-                    PortID = r.PortID,
-                    PortName = r.PortName ?? "",
-                    Country = r.Country ?? "",
-                    ArrivalDate = r.ArrivalDate,
-                    Origin = r.Origin,
-                    VesselStatus = r.VesselStatus,
-                    VesselType = r.VesselType,
-                    DataSource = r.DataSource ?? "Scraper",
-                    ImportDate = importDate.Date
-                });
+                    string[] parts = r.VesselName.Trim().Split('\n');
+
+                    name = parts[0].Trim();
+
+                    int colonIndex = parts[1].IndexOf(':');
+                    if (colonIndex >= 0)
+                    {
+                        imoMain = parts[1].Substring(colonIndex + 1).Trim();
+                        // You may want to use imoNumber here, e.g., assign to 'imo'
+                    }
+                }
+                else
+                {
+                    name = r.VesselName.Trim();
+                    imoMain = imo;
+                }
+                records.Add(new ScrapedRecord
+                    {
+                        VesselName = name,
+                        IMO_Number = imoMain,
+                        IsMatched = _repo.GetVesselByIMO(imoMain) != null,
+                        PortID = r.PortID,
+                        PortName = r.PortName ?? "",
+                        Country = r.Country ?? "",
+                        ArrivalDate = r.ArrivalDate,
+                        Origin = r.Origin,
+                        VesselStatus = r.VesselStatus,
+                        VesselType = r.VesselType,
+                        DataSource = r.DataSource ?? "Scraper",
+                        ImportDate = importDate.Date
+                    });
             }
 
             _repo.InsertScrapedRows(records);   // useless IMOs auto-flagged on insert
             return new(true,
-                $"Load Data complete: {records.Count} row(s) imported from {sources.Count} source URL(s). " +
+                $"Scrapping completed Now " +
                 "Run Auto Data to distribute them to users.", records.Count, sources.Count);
         }
 

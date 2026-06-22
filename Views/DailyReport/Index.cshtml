@@ -2,11 +2,15 @@
 @inject Microsoft.AspNetCore.Antiforgery.IAntiforgery Af
 @{
     ViewData["Title"] = "Daily Report";
-    var d = (DateTime)ViewBag.Date;
+    var from = (DateTime)ViewBag.DateFrom;
+    var to = (DateTime)ViewBag.DateTo;
+    bool range = from.Date != to.Date;
     string? country = ViewBag.Country;
     bool show = ViewBag.Show;
     var countries = (List<ShippingManagement.Web.Models.CountryItem>)ViewBag.Countries;
     var tokens = Af.GetAndStoreTokens(Context);
+    var fromStr = from.ToString("yyyy-MM-dd");
+    var toStr = to.ToString("yyyy-MM-dd");
 }
 
 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -14,27 +18,31 @@
     @if (show)
     {
         <div class="btn-group">
-            <a class="btn btn-sm btn-success" asp-action="ExportSingle" asp-route-date="@d.ToString("yyyy-MM-dd")" asp-route-country="@country">
+            <a class="btn btn-sm btn-success" asp-action="ExportSingle" asp-route-dateFrom="@fromStr" asp-route-dateTo="@toStr" asp-route-country="@country">
                 <i class="bi bi-file-earmark-excel"></i> Excel (single sheet)</a>
-            <a class="btn btn-sm btn-outline-success" asp-action="ExportTwoSheets" asp-route-date="@d.ToString("yyyy-MM-dd")" asp-route-country="@country">
+            <a class="btn btn-sm btn-outline-success" asp-action="ExportTwoSheets" asp-route-dateFrom="@fromStr" asp-route-dateTo="@toStr" asp-route-country="@country">
                 Excel (Asia / Non-Asia)</a>
-            <a class="btn btn-sm btn-outline-primary" asp-action="ExportPortWise" asp-route-date="@d.ToString("yyyy-MM-dd")" asp-route-country="@country">
+           @*  <a class="btn btn-sm btn-outline-primary" asp-action="ExportPortWise" asp-route-dateFrom="@fromStr" asp-route-dateTo="@toStr" asp-route-country="@country">
                 Port-Wise (Excel)</a>
-            <a class="btn btn-sm btn-outline-primary" asp-action="ExportPortWiseCsv" asp-route-date="@d.ToString("yyyy-MM-dd")" asp-route-country="@country">
+            <a class="btn btn-sm btn-outline-primary" asp-action="ExportPortWiseCsv" asp-route-dateFrom="@fromStr" asp-route-dateTo="@toStr" asp-route-country="@country">
                 Port-Wise (CSV)</a>
-            <a class="btn btn-sm btn-outline-primary" asp-action="PortWisePrint" asp-route-date="@d.ToString("yyyy-MM-dd")" asp-route-country="@country" target="_blank">
-                Port-Wise (PDF)</a>
-            <a class="btn btn-sm btn-outline-secondary" asp-action="ExportCsv" asp-route-date="@d.ToString("yyyy-MM-dd")" asp-route-country="@country">CSV</a>
-            <a class="btn btn-sm btn-outline-danger" asp-action="Print" asp-route-date="@d.ToString("yyyy-MM-dd")" asp-route-country="@country" target="_blank">
+            <a class="btn btn-sm btn-outline-primary" asp-action="PortWisePrint" asp-route-dateFrom="@fromStr" asp-route-dateTo="@toStr" asp-route-country="@country" target="_blank">
+                Port-Wise (PDF)</a> *@
+            <a class="btn btn-sm btn-outline-secondary" asp-action="ExportCsv" asp-route-dateFrom="@fromStr" asp-route-dateTo="@toStr" asp-route-country="@country">CSV</a>
+            <a class="btn btn-sm btn-outline-danger" asp-action="Print" asp-route-dateFrom="@fromStr" asp-route-dateTo="@toStr" asp-route-country="@country" target="_blank">
                 <i class="bi bi-printer"></i> PDF / Print</a>
         </div>
     }
-</div> 
+</div>
 
 <form method="get" class="row g-2 align-items-end mb-3">
     <div class="col-auto">
-        <label class="form-label small mb-0">Date <em class="text-muted">(default: today)</em></label>
-        <input type="date" name="date" value="@d.ToString("yyyy-MM-dd")" class="form-control form-control-sm" />
+        <label class="form-label small mb-0">From <em class="text-muted">(default: today)</em></label>
+        <input type="date" name="dateFrom" value="@fromStr" class="form-control form-control-sm" />
+    </div>
+    <div class="col-auto">
+        <label class="form-label small mb-0">To <em class="text-muted">(default: same as From)</em></label>
+        <input type="date" name="dateTo" value="@toStr" class="form-control form-control-sm" />
     </div>
     <div class="col-auto">
         <label class="form-label small mb-0">Country</label>
@@ -51,14 +59,17 @@
 {
     <div class="card">
         <div class="card-header d-flex justify-content-between">
-            <span>@d.ToString("dddd, dd MMMM yyyy") @(string.IsNullOrEmpty(country) ? "" : $"— {country}") — @Model.Count arrival(s)</span>
+            <span>
+                @(range ? $"{from:dd MMM yyyy} \u2013 {to:dd MMM yyyy}" : from.ToString("dddd, dd MMMM yyyy"))
+                @(string.IsNullOrEmpty(country) ? "" : $"\u2014 {country}") &mdash; @Model.Count arrival(s)
+            </span>
             <span class="small text-muted">Blue = regular customer &middot; "Tag" hides the row from exports</span>
         </div>
         <div class="table-responsive" style="max-height:65vh">
             <table class="table table-sm table-hover align-middle mb-0">
                 <thead class="table-light sticky-top">
                     <tr>
-                        <th>IMO</th><th>Vessel</th><th>Type</th><th>Port</th><th>Country</th>
+                        <th>Date</th><th>IMO</th><th>Vessel</th><th>Type</th><th>Port</th><th>Country</th>
                         <th>Company</th><th>Confirm Email</th><th>Purchase Email</th><th>Catering Email</th><th>Tag</th>
                     </tr>
                 </thead>
@@ -66,6 +77,7 @@
                     @foreach (var a in Model)
                     {
                         <tr id="log-@a.LogID" class="@(a.CustomerStatus == "Regular" ? "regular-customer" : "") @(a.IsTagged ? "opacity-50" : "")">
+                            <td class="small text-nowrap">@a.ArrivalDate.ToString("yyyy-MM-dd")</td>
                             <td><a asp-controller="MasterData" asp-action="History" asp-route-imo="@a.IMO_Number">@a.IMO_Number</a></td>
                             <td class="fw-semibold">@a.VesselName</td>
                             <td>@a.VesselType</td>
@@ -84,7 +96,7 @@
                         </tr>
                     }
                     @if (Model.Count == 0)
-                    { <tr><td colspan="10" class="text-center text-muted py-4">No arrivals saved for this date/country.</td></tr> }
+                    { <tr><td colspan="11" class="text-center text-muted py-4">No arrivals saved for this date range / country.</td></tr> }
                 </tbody>
             </table>
         </div>
@@ -92,7 +104,7 @@
 }
 else
 {
-    <div class="alert alert-info">Select a date (defaults to today) and optionally a country, then click <strong>Show Report</strong>.</div>
+    <div class="alert alert-info">Pick a <strong>From</strong> date (defaults to today) and optionally a <strong>To</strong> date for a range, plus a country, then click <strong>Show Report</strong>. Leave <em>To</em> the same as <em>From</em> for a single day.</div>
 }
 
 @section Scripts {

@@ -1,14 +1,19 @@
 @model List<ShippingManagement.Web.Models.ArrivalLog>
 @{
     Layout = null;
-    var d = (DateTime)ViewBag.Date;
-    string? country = ViewBag.Country;
+    var from = (DateTime)ViewBag.DateFrom;
+    var to = (DateTime)ViewBag.DateTo;
+    bool range = from.Date != to.Date;
+    string when = range
+        ? $"{from:dd MMM yyyy} – {to:dd MMM yyyy}"
+        : from.ToString("dddd, dd MMMM yyyy");
+    string country = ViewBag.Country;
 }
 <!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8" />
-    <title>Daily Report @d.ToString("yyyy-MM-dd")</title>
+    <title>Daily Report @(range ? $"{from:yyyy-MM-dd}_to_{to:yyyy-MM-dd}" : from.ToString("yyyy-MM-dd"))</title>
     <style>
         body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; margin: 24px; color: #111; }
         .rpt-head { display:flex; align-items:center; gap:10px; border-bottom:3px solid #22a6f2; padding-bottom:8px; margin-bottom:12px; }
@@ -31,15 +36,16 @@
         <div class="rpt-mark">&#9875;</div>
         <h2>Daily Arrival Report</h2>
     </div>
-    <div class="sub">@d.ToString("dddd, dd MMMM yyyy") @(string.IsNullOrEmpty(country) ? "— All countries" : $"— {country}") &middot; @Model.Count arrival(s) &middot; Generated @DateTime.Now.ToString("yyyy-MM-dd HH:mm")</div>
+    <div class="sub">@when @(string.IsNullOrEmpty(country) ? "— All countries" : $"— {country}") &middot; @Model.Count arrival(s) &middot; Generated @DateTime.Now.ToString("yyyy-MM-dd HH:mm")</div>
     <table>
         <thead>
-            <tr><th>IMO</th><th>Vessel</th><th>Type</th><th>Port</th><th>Country</th><th>Company</th><th>Confirm Email</th><th>Purchase Email</th><th>Catering Email</th></tr>
+            <tr><th>Date</th><th>IMO</th><th>Vessel</th><th>Type</th><th>Port</th><th>Country</th><th>Company</th><th>Confirm Email</th><th>Purchase Email</th><th>Catering Email</th></tr>
         </thead>
         <tbody>
             @foreach (var a in Model)
             {
                 <tr class="@(a.CustomerStatus == "Regular" ? "regular" : "")">
+                    <td>@a.ArrivalDate.ToString("yyyy-MM-dd")</td>
                     <td>@a.IMO_Number</td><td>@a.VesselName</td><td>@a.VesselType</td>
                     <td>@a.PortName</td><td>@a.Country</td><td>@a.CompanyName</td>
                     <td>@a.ConfirmEmail</td><td>@a.PurchaseEmail</td><td>@a.CateringEmail</td>

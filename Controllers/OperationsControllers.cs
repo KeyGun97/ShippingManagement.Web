@@ -238,13 +238,19 @@ namespace ShippingManagement.Web.Controllers
         public DailyReportController(ShippingRepository repo, ExportService export)
         { _repo = repo; _export = export; }
 
-        public IActionResult Index(DateTime? date, string? country, bool show = false)
+        public IActionResult Index(DateTime? dateFrom, DateTime? dateTo, DateTime? date, string? country, bool show = false)
         {
-            var d = date ?? DateTime.Today;                 // default = today (spec)
-            ViewBag.Date = d; ViewBag.Country = country; ViewBag.Show = show;
+            // Backward-compatible: a single ?date= still works and seeds both ends of the range.
+            var from = dateFrom ?? date ?? DateTime.Today;          // default = today (spec)
+            var to   = dateTo   ?? date ?? from;                    // default = same day (single-day report)
+            if (to < from) (from, to) = (to, from);                 // tolerate reversed input
+
+            ViewBag.DateFrom = from; ViewBag.DateTo = to;
+            ViewBag.Country = country; ViewBag.Show = show;
             ViewBag.Countries = _repo.GetCountries().ToList();
             var rows = show
-                ? _repo.GetArrivals(d, string.IsNullOrWhiteSpace(country) ? null : country, excludeTagged: false).ToList()
+                ? _repo.GetArrivals(null, string.IsNullOrWhiteSpace(country) ? null : country,
+                                    excludeTagged: false, dateFrom: from, dateTo: to).ToList()
                 : new List<ArrivalLog>();
             return View(rows);
         }
@@ -256,55 +262,70 @@ namespace ShippingManagement.Web.Controllers
             return Json(new { ok = true });
         }
 
-        public IActionResult ExportSingle(DateTime date, string? country)
+        public IActionResult ExportSingle(DateTime dateFrom, DateTime? dateTo, string? country)
         {
-            var rows = _repo.GetArrivals(date, NullIfEmpty(country), excludeTagged: true).ToList();
-            return Xlsx(_export.DailyReportSingleSheet(rows), $"DailyReport_{date:yyyyMMdd}.xlsx");
+            var (f, t) = Range(dateFrom, dateTo);
+            var rows = _repo.GetArrivals(null, NullIfEmpty(country), excludeTagged: true, dateFrom: f, dateTo: t).ToList();
+            return Xlsx(_export.DailyReportSingleSheet(rows), $"DailyReport_{Stamp(f, t)}.xlsx");
         }
 
-        public IActionResult ExportTwoSheets(DateTime date, string? country)
+        public IActionResult ExportTwoSheets(DateTime dateFrom, DateTime? dateTo, string? country)
         {
-            var rows = _repo.GetArrivals(date, NullIfEmpty(country), excludeTagged: true).ToList();
-            return Xlsx(_export.DailyReportTwoSheets(rows), $"DailyReport_AsiaSplit_{date:yyyyMMdd}.xlsx");
+            var (f, t) = Range(dateFrom, dateTo);
+            var rows = _repo.GetArrivals(null, NullIfEmpty(country), excludeTagged: true, dateFrom: f, dateTo: t).ToList();
+            return Xlsx(_export.DailyReportTwoSheets(rows), $"DailyReport_AsiaSplit_{Stamp(f, t)}.xlsx");
         }
 
-        /// <summary>Port-Wise report: one worksheet per port for the selected date.</summary>
-        public IActionResult ExportPortWise(DateTime date, string? country)
+        /// <summary>Port-Wise report: one worksheet per port for the selected date range.</summary>
+        public IActionResult ExportPortWise(DateTime dateFrom, DateTime? dateTo, string? country)
         {
-            var rows = _repo.GetArrivals(date, NullIfEmpty(country), excludeTagged: true).ToList();
-            return Xlsx(_export.PortWiseExcel(rows), $"PortWise_{date:yyyyMMdd}.xlsx");
+            var (f, t) = Range(dateFrom, dateTo);
+            var rows = _repo.GetArrivals(null, NullIfEmpty(country), excludeTagged: true, dateFrom: f, dateTo: t).ToList();
+            return Xlsx(_export.PortWiseExcel(rows), $"PortWise_{Stamp(f, t)}.xlsx");
         }
 
-        public IActionResult ExportPortWiseCsv(DateTime date, string? country)
+        public IActionResult ExportPortWiseCsv(DateTime dateFrom, DateTime? dateTo, string? country)
         {
-            var rows = _repo.GetArrivals(date, NullIfEmpty(country), excludeTagged: true)
+            var (f, t) = Range(dateFrom, dateTo);
+            var rows = _repo.GetArrivals(null, NullIfEmpty(country), excludeTagged: true, dateFrom: f, dateTo: t)
                             .OrderBy(r => r.PortName).ToList();
             return File(System.Text.Encoding.UTF8.GetBytes(_export.ArrivalsCsv(rows)),
-                        "text/csv", $"PortWise_{date:yyyyMMdd}.csv");
+                        "text/csv", $"PortWise_{Stamp(f, t)}.csv");
         }
 
         /// <summary>Port-Wise PDF (browser print) — arrivals ordered by port.</summary>
-        public IActionResult PortWisePrint(DateTime date, string? country)
+        public IActionResult PortWisePrint(DateTime dateFrom, DateTime? dateTo, string? country)
         {
-            ViewBag.Date = date; ViewBag.Country = country;
-            var rows = _repo.GetArrivals(date, NullIfEmpty(country), excludeTagged: true)
+            var (f, t) = Range(dateFrom, dateTo);
+            ViewBag.DateFrom = f; ViewBag.DateTo = t; ViewBag.Country = country;
+            var rows = _repo.GetArrivals(null, NullIfEmpty(country), excludeTagged: true, dateFrom: f, dateTo: t)
                             .OrderBy(r => r.PortName).ToList();
             return View("Print", rows);
         }
 
-        public IActionResult ExportCsv(DateTime date, string? country)
+        public IActionResult ExportCsv(DateTime dateFrom, DateTime? dateTo, string? country)
         {
-            var rows = _repo.GetArrivals(date, NullIfEmpty(country), excludeTagged: true).ToList();
+            var (f, t) = Range(dateFrom, dateTo);
+            var rows = _repo.GetArrivals(null, NullIfEmpty(country), excludeTagged: true, dateFrom: f, dateTo: t).ToList();
             return File(System.Text.Encoding.UTF8.GetBytes(_export.ArrivalsCsv(rows)),
-                        "text/csv", $"DailyReport_{date:yyyyMMdd}.csv");
+                        "text/csv", $"DailyReport_{Stamp(f, t)}.csv");
         }
 
         /// <summary>Print-friendly view (use the browser's Print → Save as PDF).</summary>
-        public IActionResult Print(DateTime date, string? country)
+        public IActionResult Print(DateTime dateFrom, DateTime? dateTo, string? country)
         {
-            ViewBag.Date = date; ViewBag.Country = country;
-            return View(_repo.GetArrivals(date, NullIfEmpty(country), excludeTagged: true).ToList());
+            var (f, t) = Range(dateFrom, dateTo);
+            ViewBag.DateFrom = f; ViewBag.DateTo = t; ViewBag.Country = country;
+            return View(_repo.GetArrivals(null, NullIfEmpty(country), excludeTagged: true, dateFrom: f, dateTo: t).ToList());
         }
+
+        private static (DateTime from, DateTime to) Range(DateTime from, DateTime? to)
+        {
+            var t = to ?? from;
+            return t < from ? (t, from) : (from, t);
+        }
+        private static string Stamp(DateTime f, DateTime t) =>
+            f.Date == t.Date ? $"{f:yyyyMMdd}" : $"{f:yyyyMMdd}-{t:yyyyMMdd}";
 
         private static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
         private FileContentResult Xlsx(byte[] bytes, string name) =>

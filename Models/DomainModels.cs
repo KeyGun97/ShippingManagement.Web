@@ -175,6 +175,20 @@ namespace ShippingManagement.Web.Models
         public string Status { get; set; } = "Sent";   // Sent | Failed | Logged
         public string? ErrorText { get; set; }
         public int? SentBy { get; set; }
+        public string? SentVia { get; set; }            // which sending profile (e.g. Google / Hotmail) was used
         public DateTime SentAt { get; set; }
+    }
+
+    /// <summary>Auto Emails — a reusable subject/body preset the user can save and pick from.</summary>
+    public class EmailTemplate
+    {
+        public int TemplateID { get; set; }
+        public string Name { get; set; } = "";
+        public string? Category { get; set; }           // optional: ties the template to an email category
+        public string Subject { get; set; } = "";
+        public string Body { get; set; } = "";
+        public bool IsHtml { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime? UpdatedAt { get; set; }
     }
 }

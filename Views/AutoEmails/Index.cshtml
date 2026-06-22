@@ -9,6 +9,9 @@
     var countries = (List<ShippingManagement.Web.Models.CountryItem>)ViewBag.Countries;
     var categories = (string[])ViewBag.Categories;
     var log = (List<ShippingManagement.Web.Models.EmailLog>)ViewBag.Log;
+    var profiles = (IReadOnlyList<ShippingManagement.Web.Services.EmailProfile>)ViewBag.Profiles;
+    string defaultProfile = ViewBag.DefaultProfile;
+    var templates = (List<ShippingManagement.Web.Models.EmailTemplate>)ViewBag.Templates;
 
     string? Addr(ShippingManagement.Web.Models.ArrivalLog a) => category switch
     {
@@ -69,10 +72,58 @@
     <div class="col-auto"><button class="btn btn-sm btn-primary"><i class="bi bi-arrow-repeat"></i> Load recipients</button></div>
 </form>
 
+<div class="card mb-3 no-print">
+    <div class="card-body py-2">
+        <form method="post" asp-action="Upload" enctype="multipart/form-data" class="row g-2 align-items-end">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="date" value="@d.ToString("yyyy-MM-dd")" />
+            <input type="hidden" name="country" value="@country" />
+            <input type="hidden" name="category" value="@category" />
+            <input type="hidden" name="regularOnly" value="@regularOnly.ToString().ToLower()" />
+            <div class="col-auto">
+                <label class="form-label small mb-0"><i class="bi bi-file-earmark-excel text-success"></i> Upload recipients from Excel</label>
+                <input type="file" name="file" accept=".xlsx,.xlsm" class="form-control form-control-sm" required />
+            </div>
+            <div class="col-auto">
+                <button class="btn btn-sm btn-outline-primary"><i class="bi bi-upload"></i> Load from Excel</button>
+            </div>
+            <div class="col-12">
+                <span class="form-text">
+                    Matched columns: <code>Vessel Name</code>, <code>IMO</code>, <code>Company Name</code>,
+                    <code>Confirm Email</code> (and Purchaser / Catering / Generated / General emails).
+                    The <strong>Confirm Email</strong> column is used for the Confirm category.
+                </span>
+            </div>
+        </form>
+    </div>
+</div>
+
+@if (ViewBag.Uploaded == true)
+{
+    <div class="alert alert-info d-flex justify-content-between align-items-center py-2 no-print">
+        <span>
+            <i class="bi bi-info-circle"></i>
+            Showing <strong>@Model.Count</strong> recipient(s) uploaded from
+            <strong>@ViewBag.UploadFile</strong> — database arrivals are hidden until you clear this list.
+        </span>
+        <form method="post" asp-action="ClearUpload" class="m-0">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="date" value="@d.ToString("yyyy-MM-dd")" />
+            <input type="hidden" name="country" value="@country" />
+            <input type="hidden" name="category" value="@category" />
+            <input type="hidden" name="regularOnly" value="@regularOnly.ToString().ToLower()" />
+            <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-x-circle"></i> Clear list</button>
+        </form>
+    </div>
+}
+
 <div class="row g-3">
     <div class="col-lg-5">
         <div class="card">
-            <div class="card-header">Compose <span class="badge bg-primary ms-1">@category</span></div>
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Compose <span class="badge bg-primary ms-1">@category</span></span>
+                <a asp-controller="EmailTemplates" asp-action="Index" class="small"><i class="bi bi-pencil-square"></i> Manage templates</a>
+            </div>
             <div class="card-body">
                 <form method="post" asp-action="Send"
                       onsubmit="return confirm('Send the @category email to @withAddr.Count recipient(s) for @d.ToString("yyyy-MM-dd")?');">
@@ -82,16 +133,40 @@
                     <input type="hidden" name="category" value="@category" />
                     <input type="hidden" name="regularOnly" value="@regularOnly.ToString().ToLower()" />
 
+                    <div class="row g-2 mb-2">
+                        <div class="col-sm-6">
+                            <label class="form-label small mb-0">Send from</label>
+                            <select name="profile" id="profileSelect" class="form-select form-select-sm">
+                                @foreach (var p in profiles)
+                                {
+                                    <option value="@p.Name" selected="@(p.Name == defaultProfile)">
+                                        @p.Name@(string.IsNullOrWhiteSpace(p.FromAddress) ? "" : $" — {p.FromAddress}")
+                                    </option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-sm-6">
+                            <label class="form-label small mb-0">Use template</label>
+                            <select id="templateSelect" class="form-select form-select-sm">
+                                <option value="">— none (manual) —</option>
+                                @foreach (var t in templates)
+                                {
+                                    <option value="@t.TemplateID">@t.Name@(string.IsNullOrWhiteSpace(t.Category) ? "" : $" ({t.Category})")</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+
                     <div class="mb-2">
                         <label class="form-label small mb-0">Subject</label>
-                        <input name="subject" class="form-control form-control-sm" value="@ViewBag.DefaultSubject" required />
+                        <input name="subject" id="subjectInput" class="form-control form-control-sm" value="@ViewBag.DefaultSubject" required />
                     </div>
                     <div class="mb-2">
                         <label class="form-label small mb-0">Body</label>
-                        <textarea name="body" class="form-control" rows="9" required>@ViewBag.DefaultBody</textarea>
+                        <textarea name="body" id="bodyInput" class="form-control" rows="9" required>@ViewBag.DefaultBody</textarea>
                     </div>
                     <div class="form-check mb-2">
-                        <input class="form-check-input" type="checkbox" name="htmlBody" value="true" id="html" />
+                        <input class="form-check-input" type="checkbox" name="htmlBody" id="html" value="true" />
                         <label class="form-check-label small" for="html">Send as HTML</label>
                     </div>
                     <div class="form-text mb-2">
@@ -132,7 +207,7 @@
                             </tr>
                         }
                         @if (Model.Count == 0)
-                        { <tr><td colspan="5" class="text-center text-muted py-4">No arrivals for this date/country. Generate a Daily Report first.</td></tr> }
+                        { <tr><td colspan="5" class="text-center text-muted py-4">No arrivals for this date/country. Generate a Daily Report first, or upload an Excel list above.</td></tr> }
                     </tbody>
                 </table>
             </div>
@@ -144,13 +219,14 @@
     <div class="card-header">Recent Email Activity <span class="text-muted small">(latest @log.Count)</span></div>
     <div class="table-responsive" style="max-height:40vh">
         <table class="table table-sm table-hover mb-0">
-            <thead class="table-light sticky-top"><tr><th>When</th><th>Category</th><th>To</th><th>Vessel</th><th>Subject</th><th>Status</th></tr></thead>
+            <thead class="table-light sticky-top"><tr><th>When</th><th>Category</th><th>Via</th><th>To</th><th>Vessel</th><th>Subject</th><th>Status</th></tr></thead>
             <tbody>
                 @foreach (var e in log)
                 {
                     <tr>
                         <td class="small text-nowrap">@e.SentAt.ToString("yyyy-MM-dd HH:mm")</td>
                         <td><span class="badge bg-secondary">@e.Category</span></td>
+                        <td class="small">@(string.IsNullOrWhiteSpace(e.SentVia) ? "—" : e.SentVia)</td>
                         <td class="small">@e.ToAddress</td>
                         <td class="small">@e.VesselName</td>
                         <td class="small">@e.Subject</td>
@@ -161,8 +237,24 @@
                         </td>
                     </tr>
                 }
-                @if (log.Count == 0) { <tr><td colspan="6" class="text-center text-muted py-3">No emails sent yet.</td></tr> }
+                @if (log.Count == 0) { <tr><td colspan="7" class="text-center text-muted py-3">No emails sent yet.</td></tr> }
             </tbody>
         </table>
     </div>
 </div>
+
+@section Scripts {
+<script>
+    // Templates supplied by the server (id -> subject/body/html). Picking one fills the form.
+    const emailTemplates = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
+        templates.ToDictionary(t => t.TemplateID, t => new { subject = t.Subject, body = t.Body, isHtml = t.IsHtml })));
+
+    document.getElementById('templateSelect').addEventListener('change', function () {
+        const t = emailTemplates[this.value];
+        if (!t) return;
+        document.getElementById('subjectInput').value = t.subject;
+        document.getElementById('bodyInput').value = t.body;
+        document.getElementById('html').checked = !!t.isHtml;
+    });
+</script>
+}

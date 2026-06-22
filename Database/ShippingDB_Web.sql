@@ -218,9 +218,24 @@ CREATE TABLE dbo.EmailLog (
     Status      NVARCHAR(20)  NOT NULL DEFAULT 'Sent',  -- 'Sent' | 'Failed' | 'Logged'
     ErrorText   NVARCHAR(500) NULL,
     SentBy      INT NULL REFERENCES dbo.Users(UserID),
+    SentVia     NVARCHAR(60)  NULL,              -- sending account used (Google / Hotmail / …)
     SentAt      DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
 );
 CREATE INDEX IX_EmailLog_SentAt ON dbo.EmailLog(SentAt DESC);
+GO
+
+/* ───────────────────────── EMAIL TEMPLATES (reusable presets) ──────────── */
+IF OBJECT_ID('dbo.EmailTemplates') IS NULL
+CREATE TABLE dbo.EmailTemplates (
+    TemplateID  INT IDENTITY(1,1) PRIMARY KEY,
+    Name        NVARCHAR(120) NOT NULL,
+    Category    NVARCHAR(40)  NULL,              -- NULL = applies to any category
+    Subject     NVARCHAR(300) NOT NULL,
+    Body        NVARCHAR(MAX) NOT NULL,
+    IsHtml      BIT NOT NULL DEFAULT 0,
+    CreatedAt   DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    UpdatedAt   DATETIME2 NULL
+);
 GO
 
 /* ───────────────────────── VIEWS ───────────────────────── */
