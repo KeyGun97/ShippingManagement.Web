@@ -17,18 +17,18 @@ namespace ShippingManagement.Web.Services
 
         private static readonly string[] ArrivalHeaders =
         {
-            "S.No","Vessel Name","IMO #","Vessel Type","Call Sign","Port","Country","Arrival Date",
+            "S.No","Vessel Name","IMO #","Confirm Email","Purchase Email","Catering Email","Generate Email","Deck/Eng Email",
+            "General Email","Vessel Type","Call Sign","Port","Country","Arrival Date",
             "Company Name","Company Address","Company Country","Customer Status","Fleet Email",
-            "Confirm Email","Purchase Email","Catering Email","Generate Email","Deck/Eng Email",
-            "General Email","Telephone","Website","Terms","Status"
+            "Telephone","Website","Terms","Status"
         };
 
         private static object?[] ArrivalRow(int i, ArrivalLog a) => new object?[]
         {
-            i, a.VesselName, a.IMO_Number, a.VesselType, a.CallSign, a.PortName, a.Country,
+            i, a.VesselName, a.IMO_Number, a.ConfirmEmail, a.PurchaseEmail, a.CateringEmail,
+            a.GenerateEmail, a.DeckEngEmail, a.GeneralEmail, a.VesselType, a.CallSign, a.PortName, a.Country,
             a.ArrivalDate.ToString("yyyy-MM-dd"), a.CompanyName, a.CompanyAddress, a.CompanyCountry,
-            a.CustomerStatus, a.CompanyEmail, a.ConfirmEmail, a.PurchaseEmail, a.CateringEmail,
-            a.GenerateEmail, a.DeckEngEmail, a.GeneralEmail, a.Telephone, a.Website, a.Terms, a.Status
+            a.CustomerStatus, a.CompanyEmail,  a.Telephone, a.Website, a.Terms, a.Status
         };
 
         /* ── Daily report: single sheet ─────────────────────────────────── */
@@ -123,16 +123,15 @@ namespace ShippingManagement.Web.Services
 
         public string VesselsCsv(IList<Vessel> rows)
         {
-            string[] headers = { "S.No", "Vessel Name", "IMO #", "Type", "Call Sign", "Company", "Customer Status", "Port", "ETA", "Country",
-                                 "Confirm Email", "Purchase Email", "Catering Email", "Generate Email", "Deck/Eng Email", "General Email", "Phone", "Terms", "Status" };
+            string[] headers = { "S.No", "Vessel Name", "IMO #", "Confirm Email", "Purchase Email", "Catering Email", "Generate Email", "Deck/Eng Email", "General Email",
+                                 "Type", "Call Sign", "Company", "Customer Status", "Port", "ETA", "Country","Phone", "Terms", "Status" };
             var sb = new StringBuilder();
             sb.AppendLine(string.Join(",", headers.Select(Csv)));
             for (int i = 0; i < rows.Count; i++)
             {
                 var v = rows[i];
-                object?[] vals = { i + 1, v.VesselName, v.IMO_Number, v.VesselType, v.CallSign, v.CompanyName, v.CustomerStatus,
-                                   v.Port, v.ETA, v.Country, v.ConfirmEmail, v.PurchaseEmail, v.CateringEmail, v.GenerateEmail,
-                                   v.DeckEngEmail, v.GeneralEmail, v.PhoneNo, v.Terms, v.Status };
+                object?[] vals = { i + 1, v.VesselName, v.IMO_Number, v.ConfirmEmail, v.PurchaseEmail, v.CateringEmail, v.GenerateEmail,
+                                   v.DeckEngEmail, v.GeneralEmail, v.VesselType, v.CallSign, v.CompanyName, v.CustomerStatus,v.Port, v.ETA, v.Country, v.PhoneNo, v.Terms, v.Status };
                 sb.AppendLine(string.Join(",", vals.Select(x => Csv(x?.ToString()))));
             }
             return sb.ToString();

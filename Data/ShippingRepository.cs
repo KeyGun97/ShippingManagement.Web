@@ -82,7 +82,12 @@ namespace ShippingManagement.Web.Data
             using var c = Conn();
             return c.Query<Vessel>(sql, new
             {
-                term, like = $"%{term}%", companyId, country, typeId, port,
+                term,
+                like = $"%{term}%",
+                companyId,
+                country,
+                typeId,
+                port,
                 regOnly = regularOnly ? 1 : 0
             });
         }
@@ -355,13 +360,7 @@ namespace ShippingManagement.Web.Data
                      AND EXISTS (SELECT 1 FROM UselessVessels uv WHERE uv.IMO_Number=@IMO_Number)
                           THEN 1 ELSE 0 END,
                             @AssignedUserID, @ImportDate
-                       WHERE NOT EXISTS(
-                           SELECT 1 FROM ScrapedData d
-                           WHERE d.PortName = @PortName
-                                      AND d.Country = @Country
-                                      AND((@IMO_Number IS NOT NULL AND d.IMO_Number = @IMO_Number)
-                        OR(@IMO_Number IS NULL     AND d.IMO_Number IS NULL AND d.VesselName = @VesselName))
-                        AND @VesselType IN (select distinct temp.TypeName from VesselTypes temp))";
+                       WHERE @VesselType IN (select distinct temp.TypeName from VesselTypes temp)";
             using var c = Conn();
             c.Execute(sql, rows);
         }
@@ -500,10 +499,14 @@ namespace ShippingManagement.Web.Data
             using var c = Conn();
             return c.Query<ArrivalLog>(sql, new
             {
-                date = date?.Date, dateFrom = dateFrom?.Date, dateTo = dateTo?.Date,
-                country, portName,
+                date = date?.Date,
+                dateFrom = dateFrom?.Date,
+                dateTo = dateTo?.Date,
+                country,
+                portName,
                 exclTagged = excludeTagged ? 1 : 0,
-                search, like = $"%{search}%",
+                search,
+                like = $"%{search}%",
                 regOnly = regularOnly ? 1 : 0
             });
         }
@@ -519,6 +522,17 @@ namespace ShippingManagement.Web.Data
         {
             using var c = Conn();
             c.Execute("UPDATE ArrivalLog SET IsTagged=@tagged WHERE LogID=@logId", new { tagged, logId });
+        }
+
+        /// Bulk set IsTagged for many rows in one round-trip (used by "Tag duplicates"
+        /// on the Daily Report). Returns the number of rows updated.
+        public int SetTagStatus(IEnumerable<int> logIds, bool tagged)
+        {
+            var ids = (logIds ?? Enumerable.Empty<int>()).Distinct().ToList();
+            if (ids.Count == 0) return 0;
+            using var c = Conn();
+            return c.Execute("UPDATE ArrivalLog SET IsTagged=@tagged WHERE LogID IN @ids",
+                             new { tagged, ids });
         }
 
         public bool IsAsiaCountry(string? countryName)
@@ -614,7 +628,7 @@ namespace ShippingManagement.Web.Data
                 SELECT COUNT(*) FROM ArrivalLog WHERE ArrivalDate = CAST(GETDATE() AS DATE);");
             return (multi.ReadSingle<int>(), multi.ReadSingle<int>(), multi.ReadSingle<int>(), multi.ReadSingle<int>());
         }
-        
+
         public List<VesselType> GetAllVesselTypes()
         {
             using var conn = new SqlConnection(_cs);

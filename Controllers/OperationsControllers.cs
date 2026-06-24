@@ -238,20 +238,48 @@ namespace ShippingManagement.Web.Controllers
         public DailyReportController(ShippingRepository repo, ExportService export)
         { _repo = repo; _export = export; }
 
-        public IActionResult Index(DateTime? dateFrom, DateTime? dateTo, DateTime? date, string? country, bool show = false)
+        public IActionResult Index(DateTime? dateFrom, DateTime? dateTo, DateTime? date, string? country,
+                                   bool show = false, bool showDuplicates = false)
         {
             // Backward-compatible: a single ?date= still works and seeds both ends of the range.
             var from = dateFrom ?? date ?? DateTime.Today;          // default = today (spec)
-            var to   = dateTo   ?? date ?? from;                    // default = same day (single-day report)
+            var to = dateTo ?? date ?? from;                    // default = same day (single-day report)
             if (to < from) (from, to) = (to, from);                 // tolerate reversed input
 
             ViewBag.DateFrom = from; ViewBag.DateTo = to;
             ViewBag.Country = country; ViewBag.Show = show;
+            ViewBag.ShowDuplicates = showDuplicates;
             ViewBag.Countries = _repo.GetCountries().ToList();
-            var rows = show
+
+            // Read EVERY matching row from the database. Nothing is deleted — the duplicates
+            // stay stored in ArrivalLog; we only decide whether to *display* them here.
+            var allRows = show
                 ? _repo.GetArrivals(null, string.IsNullOrWhiteSpace(country) ? null : country,
                                     excludeTagged: false, dateFrom: from, dateTo: to).ToList()
                 : new List<ArrivalLog>();
+
+            // A "duplicate" = same IMO + same Vessel name (case/whitespace-insensitive).
+            static string DupKey(ArrivalLog a) =>
+                $"{(a.IMO_Number ?? "").Trim()}|{(a.VesselName ?? "").Trim().ToUpperInvariant()}";
+
+            // LogIDs that share their IMO+Vessel with at least one other row (for highlighting).
+            var duplicateLogIds = allRows
+                .GroupBy(DupKey)
+                .Where(g => g.Count() > 1)
+                .SelectMany(g => g.Select(a => a.LogID))
+                .ToHashSet();
+
+            ViewBag.TotalCount = allRows.Count;                 // every stored row in range
+            ViewBag.UniqueCount = allRows.GroupBy(DupKey).Count();
+            ViewBag.DuplicateCount = duplicateLogIds.Count;         // rows that are part of a dup group
+            ViewBag.DuplicateLogIds = duplicateLogIds;
+
+            // Default = unique view (one row per IMO+Vessel, keeping the first/earliest).
+            // "Show duplicates" button = every row, duplicates included.
+            var rows = showDuplicates
+                ? allRows
+                : allRows.GroupBy(DupKey).Select(g => g.First()).ToList();
+
             return View(rows);
         }
 
@@ -260,6 +288,39 @@ namespace ShippingManagement.Web.Controllers
         {
             _repo.UpdateTagStatus(logId, tagged);
             return Json(new { ok = true });
+        }
+
+        /* Bulk-tag duplicate rows (same IMO + Vessel name, case/whitespace-insensitive)
+           across the selected date range. EVERY copy in a duplicate group is tagged
+           (no row is kept), so a duplicated vessel is fully excluded from tag-excluded
+           exports. Detection mirrors DailyReportController.Index. */
+        [HttpPost, ValidateAntiForgeryToken]
+        public IActionResult TagDuplicates(DateTime dateFrom, DateTime? dateTo, string? country,
+                                           bool showDuplicates = false)
+        {
+            var (from, to) = Range(dateFrom, dateTo);
+
+            var allRows = _repo.GetArrivals(null, NullIfEmpty(country),
+                                            excludeTagged: false, dateFrom: from, dateTo: to).ToList();
+
+            static string DupKey(ArrivalLog a) =>
+                $"{(a.IMO_Number ?? "").Trim()}|{(a.VesselName ?? "").Trim().ToUpperInvariant()}";
+
+            var toTag = allRows
+                .GroupBy(DupKey)
+                .Where(g => g.Count() > 1)     // only groups that actually have duplicates
+                .SelectMany(g => g)            // tag every copy in the group
+                .Where(r => !r.IsTagged)       // skip rows already tagged (avoids redundant writes)
+                .Select(r => r.LogID)
+                .ToList();
+
+            int n = _repo.SetTagStatus(toTag, true);
+            TempData[n > 0 ? "Ok" : "Error"] = n > 0
+                ? $"Tagged {n} duplicate row(s) — every copy of each duplicated vessel."
+                : "No untagged duplicate rows to tag in this range.";
+
+            return RedirectToAction(nameof(Index),
+                new { dateFrom = from, dateTo = to, country, show = true, showDuplicates });
         }
 
         public IActionResult ExportSingle(DateTime dateFrom, DateTime? dateTo, string? country)

@@ -11,6 +11,13 @@
     var tokens = Af.GetAndStoreTokens(Context);
     var fromStr = from.ToString("yyyy-MM-dd");
     var toStr = to.ToString("yyyy-MM-dd");
+
+    // Duplicate-handling state (see DailyReportController.Index)
+    bool showDuplicates = (bool)(ViewBag.ShowDuplicates ?? false);
+    int totalCount = (int)(ViewBag.TotalCount ?? 0);
+    int uniqueCount = (int)(ViewBag.UniqueCount ?? 0);
+    int hiddenCount = totalCount - uniqueCount;   // rows collapsed away in the unique view
+    var duplicateLogIds = ViewBag.DuplicateLogIds as HashSet<int> ?? new HashSet<int>();
 }
 
 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -19,18 +26,15 @@
     {
         <div class="btn-group">
             <a class="btn btn-sm btn-success" asp-action="ExportSingle" asp-route-dateFrom="@fromStr" asp-route-dateTo="@toStr" asp-route-country="@country">
-                <i class="bi bi-file-earmark-excel"></i> Excel (single sheet)</a>
+                <i class="bi bi-file-earmark-excel"></i> Excel (single sheet)
+            </a>
             <a class="btn btn-sm btn-outline-success" asp-action="ExportTwoSheets" asp-route-dateFrom="@fromStr" asp-route-dateTo="@toStr" asp-route-country="@country">
-                Excel (Asia / Non-Asia)</a>
-           @*  <a class="btn btn-sm btn-outline-primary" asp-action="ExportPortWise" asp-route-dateFrom="@fromStr" asp-route-dateTo="@toStr" asp-route-country="@country">
-                Port-Wise (Excel)</a>
-            <a class="btn btn-sm btn-outline-primary" asp-action="ExportPortWiseCsv" asp-route-dateFrom="@fromStr" asp-route-dateTo="@toStr" asp-route-country="@country">
-                Port-Wise (CSV)</a>
-            <a class="btn btn-sm btn-outline-primary" asp-action="PortWisePrint" asp-route-dateFrom="@fromStr" asp-route-dateTo="@toStr" asp-route-country="@country" target="_blank">
-                Port-Wise (PDF)</a> *@
+                Excel (Asia / Non-Asia)
+            </a>
             <a class="btn btn-sm btn-outline-secondary" asp-action="ExportCsv" asp-route-dateFrom="@fromStr" asp-route-dateTo="@toStr" asp-route-country="@country">CSV</a>
             <a class="btn btn-sm btn-outline-danger" asp-action="Print" asp-route-dateFrom="@fromStr" asp-route-dateTo="@toStr" asp-route-country="@country" target="_blank">
-                <i class="bi bi-printer"></i> PDF / Print</a>
+                <i class="bi bi-printer"></i> PDF / Print
+            </a>
         </div>
     }
 </div>
@@ -48,12 +52,44 @@
         <label class="form-label small mb-0">Country</label>
         <select name="country" class="form-select form-select-sm">
             <option value="">All countries</option>
-            @foreach (var c in countries) { <option selected="@(country == c.CountryName)">@c.CountryName</option> }
+            @foreach (var c in countries)
+            {
+                <option selected="@(country == c.CountryName)">@c.CountryName</option>
+            }
         </select>
     </div>
     <input type="hidden" name="show" value="true" />
     <div class="col-auto"><button class="btn btn-sm btn-primary"><i class="bi bi-search"></i> Show Report</button></div>
+    @if (show)
+    {
+        <div class="col-auto">
+            <a class="btn btn-sm @(showDuplicates ? "btn-warning" : "btn-outline-warning")"
+               asp-action="Index"
+               asp-route-dateFrom="@fromStr" asp-route-dateTo="@toStr"
+               asp-route-country="@country" asp-route-show="true"
+               asp-route-showDuplicates="@((!showDuplicates).ToString().ToLower())">
+                <i class="bi bi-files"></i>
+                @(showDuplicates ? "Show unique only" : "Show duplicates")
+            </a>
+        </div>
+    }
 </form>
+
+ @if (show && duplicateLogIds.Count > 0)
+// {
+//     <form method="post" asp-action="TagDuplicates" class="mb-3 d-flex align-items-center gap-2"
+//           onsubmit="return confirm('Tag EVERY duplicate row (same IMO + vessel) in this range? All copies are tagged — duplicated vessels will be excluded from exports entirely.');">
+//         @Html.AntiForgeryToken()
+//         <input type="hidden" name="dateFrom" value="@fromStr" />
+//         <input type="hidden" name="dateTo" value="@toStr" />
+//         <input type="hidden" name="country" value="@country" />
+//         <input type="hidden" name="showDuplicates" value="@showDuplicates.ToString().ToLower()" />
+//         <button type="submit" class="btn btn-sm btn-warning">
+//             <i class="bi bi-tags"></i> Tag duplicates (@duplicateLogIds.Count)
+//         </button>
+//         <span class="small text-muted">Tags every copy of each duplicated vessel.</span>
+//     </form>
+// }*/
 
 @if (show)
 {
@@ -61,24 +97,53 @@
         <div class="card-header d-flex justify-content-between">
             <span>
                 @(range ? $"{from:dd MMM yyyy} \u2013 {to:dd MMM yyyy}" : from.ToString("dddd, dd MMMM yyyy"))
-                @(string.IsNullOrEmpty(country) ? "" : $"\u2014 {country}") &mdash; @Model.Count arrival(s)
+                @(string.IsNullOrEmpty(country) ? "" : $"\u2014 {country}")
+                &mdash;
+                @if (showDuplicates)
+                {
+                    <text>showing <strong>all @totalCount</strong> arrival(s) incl. duplicates</text>
+                }
+                else
+                {
+                    <text>showing <strong>@uniqueCount unique</strong> arrival(s)</text>
+                    @if (hiddenCount > 0)
+                    {
+                        <span class="badge bg-warning text-dark ms-1">@hiddenCount duplicate row(s) hidden</span>
+                    }
+                }
             </span>
-            <span class="small text-muted">Blue = regular customer &middot; "Tag" hides the row from exports</span>
+            <span class="small text-muted">Blue = regular customer &middot; Yellow = duplicate IMO/vessel &middot; "Tag" hides the row from exports</span>
         </div>
         <div class="table-responsive" style="max-height:65vh">
             <table class="table table-sm table-hover align-middle mb-0">
                 <thead class="table-light sticky-top">
                     <tr>
-                        <th>Date</th><th>IMO</th><th>Vessel</th><th>Type</th><th>Port</th><th>Country</th>
-                        <th>Company</th><th>Confirm Email</th><th>Purchase Email</th><th>Catering Email</th><th>Tag</th>
+                        <th>Date</th>
+                        <th>IMO</th>
+                        <th>Vessel</th>
+                        <th>Type</th>
+                        <th>Port</th>
+                        <th>Country</th>
+                        <th>Company</th>
+                        <th>Confirm Email</th>
+                        <th>Purchase Email</th>
+                        <th>Catering Email</th>
+                        <th>Tag</th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach (var a in Model)
                     {
-                        <tr id="log-@a.LogID" class="@(a.CustomerStatus == "Regular" ? "regular-customer" : "") @(a.IsTagged ? "opacity-50" : "")">
+                        bool isDup = duplicateLogIds.Contains(a.LogID);
+                        <tr id="log-@a.LogID" class="@(a.CustomerStatus == "Regular" ? "regular-customer" : "") @(a.IsTagged ? "opacity-50" : "") @(showDuplicates && isDup ? "table-warning" : "")">
                             <td class="small text-nowrap">@a.ArrivalDate.ToString("yyyy-MM-dd")</td>
-                            <td><a asp-controller="MasterData" asp-action="History" asp-route-imo="@a.IMO_Number">@a.IMO_Number</a></td>
+                            <td>
+                                <a asp-controller="MasterData" asp-action="History" asp-route-imo="@a.IMO_Number">@a.IMO_Number</a>
+                                @if (showDuplicates && isDup)
+                                {
+                                    <span class="badge bg-warning text-dark" title="Same IMO + vessel appears more than once">dup</span>
+                                }
+                            </td>
                             <td class="fw-semibold">@a.VesselName</td>
                             <td>@a.VesselType</td>
                             <td>@a.PortName</td>
@@ -96,7 +161,9 @@
                         </tr>
                     }
                     @if (Model.Count == 0)
-                    { <tr><td colspan="11" class="text-center text-muted py-4">No arrivals saved for this date range / country.</td></tr> }
+                    {
+                        <tr><td colspan="11" class="text-center text-muted py-4">No arrivals saved for this date range / country.</td></tr>
+                    }
                 </tbody>
             </table>
         </div>
@@ -108,16 +175,16 @@ else
 }
 
 @section Scripts {
-<script>
-    const af = '@tokens.RequestToken';
-    $(document).on('click', '.tag-btn', function () {
-        const btn = $(this), id = btn.data('id'), nowTagged = btn.attr('data-tagged') !== 'true';
-        $.post('@Url.Action("ToggleTag")', { logId: id, tagged: nowTagged, __RequestVerificationToken: af })
-            .done(function () {
-                btn.attr('data-tagged', nowTagged).toggleClass('btn-dark', nowTagged).toggleClass('btn-outline-dark', !nowTagged)
-                   .text(nowTagged ? 'Tagged' : 'Tag');
-                $('#log-' + id).toggleClass('opacity-50', nowTagged);
-            });
-    });
-</script>
+    <script>
+        const af = '@tokens.RequestToken';
+        $(document).on('click', '.tag-btn', function () {
+            const btn = $(this), id = btn.data('id'), nowTagged = btn.attr('data-tagged') !== 'true';
+            $.post('@Url.Action("ToggleTag")', { logId: id, tagged: nowTagged, __RequestVerificationToken: af })
+                .done(function () {
+                    btn.attr('data-tagged', nowTagged).toggleClass('btn-dark', nowTagged).toggleClass('btn-outline-dark', !nowTagged)
+                       .text(nowTagged ? 'Tagged' : 'Tag');
+                    $('#log-' + id).toggleClass('opacity-50', nowTagged);
+                });
+        });
+    </script>
 }
