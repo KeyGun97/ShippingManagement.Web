@@ -360,7 +360,14 @@ namespace ShippingManagement.Web.Data
                      AND EXISTS (SELECT 1 FROM UselessVessels uv WHERE uv.IMO_Number=@IMO_Number)
                           THEN 1 ELSE 0 END,
                             @AssignedUserID, @ImportDate
-                       WHERE @VesselType IN (select distinct temp.TypeName from VesselTypes temp)";
+                     WHERE NOT EXISTS (
+                    SELECT 1 FROM ScrapedData d
+                    WHERE d.PortName = @PortName
+                      AND d.Country  = @Country
+                      AND ((@IMO_Number IS NOT NULL AND d.IMO_Number = @IMO_Number)
+                        OR (@IMO_Number IS NULL     AND d.IMO_Number IS NULL AND d.VesselName = @VesselName))
+                      AND d.ImportDate = @ImportDate
+                        AND @VesselType IN (select distinct temp.TypeName from VesselTypes temp))";
             using var c = Conn();
             c.Execute(sql, rows);
         }

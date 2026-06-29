@@ -6,9 +6,16 @@
     <RootNamespace>ShippingManagement.Web</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Remove="LicenseTool\**" />
+    <Content Remove="LicenseTool\**" />
+    <EmbeddedResource Remove="LicenseTool\**" />
+    <None Remove="LicenseTool\**" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Dapper" Version="2.1.35" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.1" />
     <PackageReference Include="ClosedXML" Version="0.102.2" />
+    <PackageReference Include="Standard.Licensing" Version="1.2.2" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="Scripts\scraper.py" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />

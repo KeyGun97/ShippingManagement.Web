@@ -81,6 +81,7 @@ namespace ShippingManagement.Web.Controllers
                 return RedirectToAction(nameof(Register), new { imo = vessel.IMO_Number });
             }
             vessel.IMO_Number = vessel.IMO_Number.Trim();
+            vessel.GenerateEmail = "master." + vessel.VesselName + "@amosconnect.com\nmaster@" + vessel.VesselName + ".amosconnect.com\n" + vessel.VesselName + "@skyfile.com\nmaster." + vessel.VesselName + "@fleetmail.inmarsat.com\n" + vessel.VesselName + "@gtmailplus.com\n" + vessel.VesselName + "@speedmailplus.com\n" + vessel.VesselName + "@shipmail.net\n" + vessel.VesselName + "@ctmail.1749.cn\n" + vessel.VesselName + "@gtships.com\naquavita.mint@gtships.com\n" + vessel.VesselName + "@infinitymail.eu\n" + vessel.VesselName + "@om-email.net";
             _repo.SaveVessel(vessel);
             TempData["Ok"] = $"Vessel '{vessel.VesselName}' (IMO {vessel.IMO_Number}) saved.";
             return RedirectToAction(nameof(Index), new { q = vessel.IMO_Number });
