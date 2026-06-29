@@ -12,38 +12,50 @@ supported and chosen automatically from the URL host:
 
   • myshiptracking  — the original paginated HTML-table parser (default)
   • vesseltracker   — the cockpit SPA at cockpit.vesseltracker.com
-
-DATE WINDOW (both parsers):
-    Only rows whose date is TODAY or within the previous `daysBack` days
-    (default 10) are kept. Future dates and anything older are dropped.
-    Configure globally with "daysBack" or per-source. See within_date_window.
-
-LOGGING:
-    Every informative line, warning and error is written to a timestamped
-    scraper_YYYYMMDD_HHMMSS.log next to output.json (and echoed to stderr).
-    stdout stays clean for the final JSON status the app parses. Read the log
-    to understand why a run came back empty / why a row was kept or skipped.
+                      (#/ Angular route → data loads via JS; usually
+                       behind a login)
 
 config.json (written by the app from Ports Setup → Data Sources):
 {
   "maxWorkers": 4,                 # optional; concurrent browsers cap (default 4)
-  "daysBack": 10,                  # optional; today + previous N days (default 10)
-  "keepUnknownDates": true,        # optional; keep rows whose date can't be parsed
-  "sources": [ ... ]
+  "sources": [
+    {
+      "sourceId": 1,
+      "sourceName": "MyShipTracking",
+      "portId": 3,
+      "portName": "Houston",
+      "country": "United States",
+      "url": "https://myshiptracking.com/vessels?...&destination=Houston&visible=vname,imo,vtype,area,speed,destination,received",
+      "pageParamPattern": "&page={page}",
+      "startPage": 1, "endPage": 50, "maxPages": 50
+    },
+    {
+      "sourceId": 2,
+      "sourceName": "VesselTracker Houston",
+      "portId": 3,
+      "portName": "Houston",
+      "country": "United States",
+      "url": "https://cockpit.vesseltracker.com/#/cockpit/ports/portDetails/904/expected"
+      # --- optional vesseltracker overrides (see parse_vesseltracker) ---
+      # "parser": "vesseltracker",          # force the parser (else auto by host)
+      # "username": "...", "password": "...",   # or env VESSELTRACKER_USER / _PASS
+      # "rowSelector": "table tbody tr",
+      # "columns": {"VesselName":0,"IMO_Number":1,"VesselType":2,"ArrivalDate":3}
+    }
+  ]
 }
 
 output.json: flat list of scraped vessel rows the app imports into ScrapedData.
 """
 
 import json
-import logging
 import os
 import re
 import sys
-import threading
+import threading as _threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
+from queue import Queue as _Queue, Empty as _QueueEmpty
 from urllib.parse import urlparse
 
 from selenium import webdriver
@@ -57,43 +69,8 @@ from selenium.common.exceptions import TimeoutException, WebDriverException
 # Set in main() to the output file's folder so artifacts land next to output.json.
 DIAG_DIR = None
 
-# ── Logging ────────────────────────────────────────────────────────────────
-# logger writes timestamped lines to a .log file next to output.json and echoes
-# an INFO-level summary to stderr. stdout is reserved for the final JSON status.
-logger = logging.getLogger("scraper")
-LOG_PATH = None
 
-
-def setup_logging(log_dir: str) -> str:
-    """Configure file + stderr logging. Returns the log file path."""
-    global LOG_PATH
-    logger.setLevel(logging.DEBUG)
-    logger.handlers.clear()
-    logger.propagate = False
-
-    os.makedirs(log_dir or ".", exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    LOG_PATH = os.path.join(log_dir or ".", f"scraper_{ts}.log")
-
-    fmt = logging.Formatter(
-        "%(asctime)s.%(msecs)03d %(levelname)-7s [%(threadName)s] %(message)s",
-        "%Y-%m-%d %H:%M:%S")
-
-    fh = logging.FileHandler(LOG_PATH, encoding="utf-8")
-    fh.setLevel(logging.DEBUG)            # full detail incl. per-row skips → file
-    fh.setFormatter(fmt)
-    logger.addHandler(fh)
-
-    ch = logging.StreamHandler(sys.stderr)   # human-facing summary → console
-    ch.setLevel(logging.INFO)
-    ch.setFormatter(fmt)
-    logger.addHandler(ch)
-
-    logger.info("=== scraper run started ; log file: %s ===", LOG_PATH)
-    return LOG_PATH
-
-
-def build_driver(headless: bool = True):
+def build_driver(headless: bool = True, implicit_wait: float = 0):
     chrome_options = Options()
     # Set VT_HEADFUL=1 to watch the browser locally while debugging selectors.
     headful = os.environ.get("VT_HEADFUL", "").strip().lower() in ("1", "true", "yes")
@@ -104,17 +81,36 @@ def build_driver(headless: bool = True):
     chrome_options.add_argument("--disable-dev-shm-usage")   # safer under concurrency
     chrome_options.add_argument("--window-size=1920,1080")
     chrome_options.add_argument("--lang=en-US")
+    # ── Speed flags: skip images/ads/extensions, don't wait for the whole page ──
+    chrome_options.add_argument("--blink-settings=imagesEnabled=false")
+    chrome_options.add_argument("--disable-extensions")
+    chrome_options.add_argument("--disable-background-networking")
+    chrome_options.add_argument("--disable-default-apps")
+    chrome_options.add_argument("--disable-sync")
+    chrome_options.add_argument("--mute-audio")
+    # "eager" = return as soon as the DOM is ready (don't block on images/sub-resources).
+    chrome_options.page_load_strategy = "eager"
+    chrome_options.add_experimental_option("prefs", {
+        "profile.managed_default_content_settings.images": 2,   # block images
+        "profile.default_content_setting_values.notifications": 2,
+    })
     chrome_options.add_argument(                            # look like a normal browser
         "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
     driver = webdriver.Chrome(options=chrome_options)
-    driver.implicitly_wait(30)
+    # Hard cap on a single navigation so one hung port can't stall the whole run.
+    try:
+        driver.set_page_load_timeout(35)
+    except WebDriverException:
+        pass
+    # Implicit wait defaults to 0: we use SHORT explicit waits per page instead, so a
+    # quiet port costs a few seconds rather than the old 30s-per-empty-lookup penalty.
+    driver.implicitly_wait(implicit_wait)
     return driver
 
 
 def is_recent(received: str) -> bool:
-    """Keep only recent records — same rule as the original script.
-    (Legacy helper; the parsers now use within_date_window instead.)"""
+    """Keep only recent records — same rule as the original script."""
     return ("4 d" in received or "m" in received or "h" in received
             or "min" in received or "Now" in received)
 
@@ -122,8 +118,10 @@ def is_recent(received: str) -> bool:
 # ── ETA window filter (skip vessels arriving more than N days out) ──────────
 DEFAULT_MAX_ETA_DAYS = 10
 
-# ── Past-date window (keep today + previous N days, drop future / too old) ──
-DEFAULT_DAYS_BACK = 10
+# How long to wait for a myshiptracking results table to render before treating
+# the port as empty. Lower = faster on quiet ports, but too low may miss slow
+# pages. 6s is a safe balance; override per run with env SCRAPER_PAGE_WAIT.
+PAGE_WAIT_SECONDS = float(os.environ.get("SCRAPER_PAGE_WAIT", "6") or 6)
 
 _MONTHS = {m: i for i, m in enumerate(
     ["", "jan", "feb", "mar", "apr", "may", "jun",
@@ -137,22 +135,19 @@ def _safe_dt(y, mo, d, hh=0, mm=0):
         return None
 
 
-def _infer_year(mo, d, now=None):
+def _infer_year(mo, d):
     """No year given → assume this year, but roll to next year if that date is
     already well in the past (handles Dec→Jan wrap on 'expected arrivals')."""
-    now = now or datetime.now()
+    now = datetime.now()
     cand = _safe_dt(now.year, mo, d)
     if cand and cand < now - timedelta(days=60):
         return now.year + 1
     return now.year
 
 
-def _parse_abs_date(s: str, now=None):
+def _parse_abs_date(s: str):
     """Best-effort absolute-date parse across common formats. Returns datetime or None."""
-    s = (s or "").strip().lower()
-    if not s:
-        return None
-    # ISO: 2026-06-25 [14:30]  → matches "2026-04-28 03:28" and the PKT strings
+    # ISO: 2026-06-25 [14:30]
     m = re.search(r'(\d{4})-(\d{1,2})-(\d{1,2})(?:[ t](\d{1,2}):(\d{2}))?', s)
     if m:
         return _safe_dt(int(m[1]), int(m[2]), int(m[3]), int(m[4] or 0), int(m[5] or 0))
@@ -165,18 +160,20 @@ def _parse_abs_date(s: str, now=None):
     m = re.search(r'\b(\d{1,2})\s+([a-z]{3,})\.?(?:\s+(\d{4}))?', s)
     if m and m[2][:3] in _MONTHS:
         mo = _MONTHS[m[2][:3]]; d = int(m[1])
-        return _safe_dt(int(m[3]) if m[3] else _infer_year(mo, d, now), mo, d)
+        return _safe_dt(int(m[3]) if m[3] else _infer_year(mo, d), mo, d)
     # "jun 25 2026" / "jun 25, 2026" / "jun 25"
     m = re.search(r'\b([a-z]{3,})\.?\s+(\d{1,2})(?:,?\s*(\d{4}))?', s)
     if m and m[1][:3] in _MONTHS:
         mo = _MONTHS[m[1][:3]]; d = int(m[2])
-        return _safe_dt(int(m[3]) if m[3] else _infer_year(mo, d, now), mo, d)
+        return _safe_dt(int(m[3]) if m[3] else _infer_year(mo, d), mo, d)
     return None
 
 
 def within_eta_window(eta_text, max_days: int = DEFAULT_MAX_ETA_DAYS) -> bool:
-    """LEGACY (no longer used by the parsers): True if the ETA is within the next
-    `max_days`, or is past / 'now' / unknown. Kept for reference/back-compat."""
+    """True if the ETA is within the next `max_days` (or is past / 'now' / unknown).
+    Returns False ONLY when the value is confidently more than max_days in the
+    future — that's the row we skip. Unparseable values are kept (never drop on
+    uncertainty)."""
     if not eta_text:
         return True
     s = str(eta_text).strip().lower()
@@ -185,10 +182,11 @@ def within_eta_window(eta_text, max_days: int = DEFAULT_MAX_ETA_DAYS) -> bool:
     now = datetime.now()
     horizon = now + timedelta(days=max_days)
 
+    # relative durations
     if "tomorrow" in s:
         return max_days >= 1
     if any(u in s for u in ("min", "hour", "now")) or re.search(r'\b\d+\s*h\b', s):
-        return True
+        return True                                   # hours / minutes out
     m = re.search(r'(\d+)\s*(?:days?|d)\b', s)
     if m:
         return int(m[1]) <= max_days
@@ -196,88 +194,15 @@ def within_eta_window(eta_text, max_days: int = DEFAULT_MAX_ETA_DAYS) -> bool:
     if m:
         return int(m[1]) * 7 <= max_days
     if re.search(r'(\d+)\s*(?:months?|mon|year|yr)\b', s):
-        return False
+        return False                                  # months/years out → skip
 
+    # absolute date
     dt = _parse_abs_date(s)
     if dt is None:
-        return True
+        return True                                   # unknown format → keep
     if dt < now - timedelta(days=1):
-        return True
+        return True                                   # already arrived / past
     return dt <= horizon
-
-
-def within_date_window(date_text, days_back: int = DEFAULT_DAYS_BACK,
-                       keep_unknown: bool = True, now=None,
-                       relative_is_past: bool = False) -> bool:
-    """True if `date_text` is TODAY or within the previous `days_back` days.
-
-    Window KEPT:    [start_of_day(today - days_back) .. end_of_day(today)]
-    DROPPED:        anything in the FUTURE (after today) or older than days_back.
-
-    Handles absolute datetimes from BOTH feeds:
-        myshiptracking "2026-04-28 03:28"  /  vesseltracker "2026-06-23 12:00 PKT …"
-
-    keep_unknown:
-        True (default) → keep values we cannot parse (never drop on uncertainty).
-        False          → drop unparseable values too.
-    relative_is_past:
-        True → also read bare durations like '4 d' / '2 h' / 'Now' as time elapsed
-        since now (use for feeds that show "received X ago" style values). Absolute
-        dates are still handled, so this is safe to leave on for myshiptracking.
-    """
-    if date_text is None:
-        return keep_unknown
-    s = str(date_text).strip().lower()
-    if not s or s in ("n/a", "na", "-", "—", "unknown"):
-        return keep_unknown
-
-    now = now or datetime.now()
-    today_end = now.replace(hour=23, minute=59, second=59, microsecond=0)
-    window_start = (now - timedelta(days=days_back)).replace(
-        hour=0, minute=0, second=0, microsecond=0)
-
-    # explicit relative phrasing (universal)
-    if s in ("now", "today"):
-        return True
-    if "yesterday" in s:
-        return days_back >= 1
-    if "tomorrow" in s:
-        return False
-    m = re.search(r'(\d+)\s*(min|minute|hour|hr|h|day|d|week|w|month|mon|year|yr)s?\s+ago', s)
-    if m:
-        n, unit = int(m[1]), m[2]
-        if unit.startswith(("min", "hour", "hr", "h")):
-            return True
-        if unit.startswith(("day", "d")):
-            return n <= days_back
-        if unit.startswith(("week", "w")):
-            return n * 7 <= days_back
-        return False
-
-    # bare "received X ago" durations (no 'ago'); opt-in via relative_is_past
-    if relative_is_past:
-        m = re.search(r'\b(\d+)\s*(min|minute|hour|hr|h|day|d|week|w|month|mon|year|yr)s?\b', s)
-        if m:
-            n, unit = int(m[1]), m[2]
-            if unit.startswith(("min", "hour", "hr", "h")):
-                return True
-            if unit.startswith(("day", "d")):
-                return n <= days_back
-            if unit.startswith(("week", "w")):
-                return n * 7 <= days_back
-            return False
-
-    # bare future relative durations on an "expected" page ("in 2 days")
-    if re.search(r'\bin\s+\d+\s*(?:day|d|week|w|hour|h|month|year)', s):
-        return False
-    if any(u in s for u in ("min", "hour")) or re.search(r'\b\d+\s*h\b', s):
-        return True
-
-    # absolute date (the path that handles "2026-04-28 03:28")
-    dt = _parse_abs_date(s, now=now)
-    if dt is None:
-        return keep_unknown
-    return window_start <= dt <= today_end
 
 
 def page_url(source: dict, page: int) -> str:
@@ -304,25 +229,20 @@ def detect_parser(source: dict) -> str:
 
 
 # ════════════════════════════════════════════════════════════════════════
-#  Parser 1 — MyShipTracking (paginated HTML-table logic)
+#  Parser 1 — MyShipTracking (original paginated HTML-table logic, unchanged)
 # ════════════════════════════════════════════════════════════════════════
 def parse_myshiptracking(driver, source: dict) -> list:
     rows_out = []
-    name = source.get("sourceName", "MyShipTracking")
     start = int(source.get("startPage", 1) or 1)
     end = int(source.get("endPage", 1) or 1)
     max_pages = int(source.get("maxPages", 50) or 50)   # "first 50 pages" rule cap
-    days_back = int(source.get("daysBack", DEFAULT_DAYS_BACK) or DEFAULT_DAYS_BACK)
-    keep_unknown = bool(source.get("keepUnknownDates", True))
+    max_eta_days = int(source.get("maxEtaDays", DEFAULT_MAX_ETA_DAYS) or DEFAULT_MAX_ETA_DAYS)
     paged = bool((source.get("pageParamPattern") or "").strip())
-
-    t0 = time.monotonic()
-    logger.info("%s (%s): starting myshiptracking pull "
-                "(window=today + previous %s day(s)).", name, source.get("portName"), days_back)
 
     # ── Two-phase pagination (per spec) ────────────────────────────────
     # Phase 1: sweep the first `max_pages` pages (default 50) to capture bulk data.
     # Phase 2: then continue with the configured page sequence (startPage..endPage).
+    # Pages are de-duplicated and visited in order.
     if not paged:
         page_sequence = [start]
     else:
@@ -334,18 +254,23 @@ def parse_myshiptracking(driver, source: dict) -> list:
                 seen.add(p)
                 page_sequence.append(p)
 
-    skipped_window = 0
     for page in page_sequence:
         url = page_url(source, page)
         try:
             driver.get(url)
+            # Implicit wait is 0 now, so wait briefly & explicitly for the table to
+            # render (ajax). A quiet port times out in ~PAGE_WAIT s, not 30 s.
+            try:
+                WebDriverWait(driver, PAGE_WAIT_SECONDS).until(
+                    lambda d: d.find_elements(By.CSS_SELECTOR, "table tbody tr"))
+            except TimeoutException:
+                pass
             rows = driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
         except Exception as ex:
-            logger.warning("%s page %s: %s", name, page, ex)
+            print(f"[warn] {source['sourceName']} page {page}: {ex}", file=sys.stderr)
             continue
 
         if not rows:                                  # empty page -> stop paging this source
-            logger.info("%s: page %s empty — stopping pagination.", name, page)
             break
 
         page_hits = 0
@@ -355,13 +280,10 @@ def parse_myshiptracking(driver, source: dict) -> list:
                 continue
 
             received = cols[6].text.strip()
-            # Keep only today + previous `days_back` days. The value may be an
-            # absolute datetime ("2026-04-28 03:28") or a "received X ago" string.
-            if not within_date_window(received, days_back, keep_unknown,
-                                      relative_is_past=True):
-                skipped_window += 1
-                logger.debug("%s: skip out-of-window: name=%r date=%r",
-                             name, cols[0].text.strip(), received)
+            #if not is_recent(received):
+             #   continue
+            # Skip vessels whose arrival/ETA is more than `max_eta_days` out.
+            if not within_eta_window(received, max_eta_days):
                 continue
 
             rows_out.append({
@@ -379,19 +301,34 @@ def parse_myshiptracking(driver, source: dict) -> list:
             })
             page_hits += 1
 
-        logger.info("%s (%s) page %s: %d in-window row(s)",
-                    name, source['portName'], page, page_hits)
+        print(f"[info] {source['sourceName']} ({source['portName']}) page {page}: {page_hits} recent row(s)")
 
-    logger.info("%s (%s) myshiptracking: %d row(s) kept "
-                "[window-skipped=%d (outside today+prev %dd)] in %.1fs.",
-                name, source['portName'], len(rows_out), skipped_window,
-                days_back, time.monotonic() - t0)
     return rows_out
 
 
 # ════════════════════════════════════════════════════════════════════════
 #  Parser 2 — VesselTracker cockpit SPA (cockpit.vesseltracker.com)
 # ════════════════════════════════════════════════════════════════════════
+#
+#  The cockpit is an Angular app: the URL uses a '#/' fragment route, so the
+#  arrivals grid is rendered by JavaScript *after* the page loads, and the
+#  site requires a login. This parser therefore:
+#     1. logs in (credentials from env VESSELTRACKER_USER / VESSELTRACKER_PASS,
+#        or the source's "username"/"password" fields),
+#     2. opens the port-details URL and waits for EITHER the grid OR a login wall,
+#     3. AUTO-DETECTS the grid layout (plain table, ag-Grid, ngx-datatable, or an
+#        ARIA role='grid') and maps columns by HEADER TEXT, so it keeps working
+#        even if the column order changes,
+#     4. lazy-scrolls to load all rows, then reads them.
+#
+#  If it still gets nothing, it saves a screenshot + the page HTML next to
+#  output.json ([diag] line on stderr) so you can read the real markup. You can
+#  override any of these per-source in config.json without editing this file:
+#     username / password / loginUrl / userField / passField / submitButton
+#     rowSelector / cellSelector / columns   (columns = {"VesselName":0,...})
+#  Debug helpers (env): VT_HEADFUL=1 opens a visible browser.
+# ════════════════════════════════════════════════════════════════════════
+
 VT_DEFAULT_COLUMNS = {       # fallback output field -> 0-based cell index in a row
     "VesselName":  0,
     "IMO_Number":  1,
@@ -400,6 +337,8 @@ VT_DEFAULT_COLUMNS = {       # fallback output field -> 0-based cell index in a 
     "Origin":      4,        # last/from port, if present
 }
 
+# Header-text synonyms used to auto-map columns regardless of their order, so the
+# parser keeps working even if VesselTracker rearranges the grid.
 VT_HEADER_SYNONYMS = {
     "IMO_Number":   ["imo"],
     "VesselName":   ["vessel name", "ship name", "name", "vessel", "ship"],
@@ -410,6 +349,8 @@ VT_HEADER_SYNONYMS = {
     "VesselStatus": ["destination", "next port", "status", "to"],
 }
 
+# Candidate grid layouts, tried in order. Angular apps rarely use plain <table>;
+# ag-Grid, ngx-datatable and ARIA-role grids are far more common.
 VT_GRID_STRATEGIES = [
     # (row_selector, cell_selector, header_cell_selector)
     ("table tbody tr",                              "td",                          "table thead th, table thead td"),
@@ -461,14 +402,15 @@ def _dismiss_cookies(driver):
 
 
 def vesseltracker_login(driver, source: dict) -> bool:
-    """Log in to the cockpit. Returns True only if we end up OFF the login wall."""
+    """Log in to the cockpit. Returns True only if we end up OFF the login wall.
+    Selectors are overridable per-source (userField / passField / submitButton)."""
     user, pwd = _vt_credentials(source)
     name = source.get("sourceName", "VesselTracker")
     if not user or not pwd:
-        logger.warning("%s: no VesselTracker credentials set. Set env VESSELTRACKER_USER "
-                       "/ VESSELTRACKER_PASS (or 'username'/'password' on the source). "
-                       "The cockpit requires login, so the grid will be empty without them.",
-                       name)
+        print(f"[warn] {name}: no VesselTracker credentials set. "
+              f"Set env VESSELTRACKER_USER / VESSELTRACKER_PASS (or 'username'/'password' "
+              f"on the source). The cockpit requires login, so the grid will be empty "
+              f"without them.", file=sys.stderr)
         return False
 
     login_url = source.get("loginUrl", "https://cockpit.vesseltracker.com/")
@@ -487,8 +429,8 @@ def vesseltracker_login(driver, source: dict) -> bool:
         u = _first_visible(driver, user_sel)
         p = _first_visible(driver, pass_sel)
         if not u or not p:
-            logger.warning("%s: could not find login fields "
-                           "(override userField/passField in the source config).", name)
+            print(f"[warn] {name}: could not find login fields "
+                  f"(override userField/passField in the source config).", file=sys.stderr)
             return False
         u.clear(); u.send_keys(user)
         p.clear(); p.send_keys(pwd)
@@ -500,11 +442,12 @@ def vesseltracker_login(driver, source: dict) -> bool:
             p.send_keys(Keys.ENTER)
         # success == the password field is gone
         WebDriverWait(driver, 30).until(lambda d: not _looks_like_login(d))
-        logger.info("%s: logged in to VesselTracker.", name)
+        print(f"[info] {name}: logged in to VesselTracker.")
         return True
     except (TimeoutException, WebDriverException) as ex:
-        logger.warning("%s: VesselTracker login failed or timed out. Verify credentials "
-                       "and userField/passField/submitButton selectors. (%s)", name, ex)
+        print(f"[warn] {name}: VesselTracker login failed or timed out. Verify "
+              f"credentials and userField/passField/submitButton selectors. ({ex})",
+              file=sys.stderr)
         return False
 
 
@@ -593,34 +536,27 @@ def _vt_dump_diag(driver, source, reason):
             pass
         with open(base + ".html", "w", encoding="utf-8") as f:
             f.write(driver.page_source or "")
-        logger.warning("[diag] %s: %s Saved screenshot + HTML to '%s.png' / '%s.html' — "
-                       "open them to read the real grid markup and set "
-                       "rowSelector/cellSelector/columns (or login selectors).",
-                       source.get("sourceName"), reason, base, base)
+        print(f"[diag] {source.get('sourceName')}: {reason} "
+              f"Saved screenshot + HTML to '{base}.png' / '{base}.html' — open them to "
+              f"read the real grid markup and set rowSelector/cellSelector/columns "
+              f"(or login selectors) in the source config.", file=sys.stderr)
     except Exception as ex:
-        logger.error("[diag] %s: could not write diagnostics: %s",
-                     source.get("sourceName"), ex)
+        print(f"[diag] {source.get('sourceName')}: could not write diagnostics: {ex}",
+              file=sys.stderr)
 
 
 def parse_vesseltracker(driver, source: dict) -> list:
     rows_out = []
     name = source.get("sourceName", "VesselTracker")
-    days_back = int(source.get("daysBack", DEFAULT_DAYS_BACK) or DEFAULT_DAYS_BACK)
-    keep_unknown = bool(source.get("keepUnknownDates", True))
+    max_eta_days = int(source.get("maxEtaDays", DEFAULT_MAX_ETA_DAYS) or DEFAULT_MAX_ETA_DAYS)
     user_cols = source.get("columns")                # explicit override wins if provided
 
-    t0 = time.monotonic()
-    logger.info("%s (%s): starting vesseltracker pull "
-                "(window=today + previous %s day(s)).", name, source.get("portName"), days_back)
-
     logged_in = vesseltracker_login(driver, source)
-    logger.info("%s: login step done (logged_in=%s) in %.1fs.",
-                name, logged_in, time.monotonic() - t0)
 
     try:
         driver.get(source["url"])
     except WebDriverException as ex:
-        logger.error("%s: could not open %s: %s", name, source["url"], ex)
+        print(f"[error] {name}: could not open {source['url']}: {ex}", file=sys.stderr)
         return rows_out
 
     _dismiss_cookies(driver)
@@ -628,50 +564,35 @@ def parse_vesseltracker(driver, source: dict) -> list:
     driver.implicitly_wait(0)
 
     # Wait until EITHER real rows render OR we detect we're stuck on a login wall.
-    t_wait = time.monotonic()
-    grid_found = False
     try:
         WebDriverWait(driver, 45).until(
             lambda d: _looks_like_login(d) or _vt_find_grid(d)[0] is not None)
-        grid_found = _vt_find_grid(driver)[0] is not None
     except TimeoutException:
-        logger.warning("%s: timed out (45s) waiting for the grid to render.", name)
-    logger.info("%s: grid wait finished after %.1fs (grid_found=%s, login_wall=%s).",
-                name, time.monotonic() - t_wait, grid_found, _looks_like_login(driver))
+        pass
 
     if _looks_like_login(driver):
         msg = ("still on the login page after navigating — login did not succeed."
                if logged_in else "requires login but no/invalid credentials were provided.")
-        logger.warning("%s: %s", name, msg)
+        print(f"[warn] {name}: {msg}", file=sys.stderr)
         _vt_dump_diag(driver, source, msg)
         return rows_out
-
-    if not grid_found:
-        logger.warning("%s: no grid detected before timeout — likely a slow cold load; "
-                       "a rerun usually warms the session.", name)
 
     # Custom selectors from config take priority; otherwise auto-detect the layout.
     if source.get("rowSelector"):
         row_sel = source["rowSelector"]
         cell_sel = source.get("cellSelector", "td")
         columns = user_cols or VT_DEFAULT_COLUMNS
-        logger.info("%s: using configured rowSelector=%r cellSelector=%r.",
-                    name, row_sel, cell_sel)
     else:
         rows0, cell_sel, columns = _vt_find_grid(driver)
         if rows0 is None:
-            logger.warning("%s: no recognizable data grid was found.", name)
             _vt_dump_diag(driver, source, "no recognizable data grid was found")
             return rows_out
         # recover the row selector that produced the best grid
         row_sel = next((rs for rs, cs, hs in VT_GRID_STRATEGIES if cs == cell_sel), "tbody tr")
         if user_cols:
             columns = user_cols
-        logger.info("%s: grid detected → rowSelector=%r cellSelector=%r columns=%s.",
-                    name, row_sel, cell_sel, columns)
 
     rows = _vt_lazy_scroll(driver, row_sel, cell_sel)
-    logger.info("%s: %d raw row element(s) after lazy-scroll.", name, len(rows))
 
     def cell(cells, field):
         idx = columns.get(field)
@@ -679,7 +600,7 @@ def parse_vesseltracker(driver, source: dict) -> list:
             return None
         return (cells[idx].text or "").strip() or None
 
-    skipped_window = 0
+    skipped = 0
     for row in rows:
         try:
             cells = row.find_elements(By.CSS_SELECTOR, cell_sel)
@@ -690,11 +611,9 @@ def parse_vesseltracker(driver, source: dict) -> list:
         vname = cell(cells, "VesselName")
         if not vname:
             continue
-        eta = cell(cells, "ArrivalDate")              # date column
-        # Keep only today + previous `days_back` days; drop future / too old.
-        if not within_date_window(eta, days_back, keep_unknown):
-            skipped_window += 1
-            logger.debug("%s: skip out-of-window: name=%r date=%r", name, vname, eta)
+        eta = cell(cells, "ArrivalDate")              # ETA (expected arrivals)
+        if not within_eta_window(eta, max_eta_days):  # skip arrivals > N days out
+            skipped += 1
             continue
         rows_out.append({
             "VesselName":   vname,
@@ -712,37 +631,58 @@ def parse_vesseltracker(driver, source: dict) -> list:
 
     if not rows_out:
         _vt_dump_diag(driver, source,
-                      f"grid found ({len(rows)} row element(s)) but no in-window vessel rows "
-                      f"were extracted (window-skipped={skipped_window}). Column mapping or "
-                      f"the date window may need adjusting.")
+                      f"grid found ({len(rows)} row element(s)) but no vessel rows were "
+                      f"extracted — column mapping is probably off.")
 
-    logger.info("%s (%s) vesseltracker: %d row(s) kept "
-                "[raw=%d, window-skipped=%d (outside today+prev %dd)] in %.1fs total.",
-                name, source['portName'], len(rows_out), len(rows),
-                skipped_window, days_back, time.monotonic() - t0)
+    print(f"[info] {name} ({source['portName']}) vesseltracker: {len(rows_out)} row(s)"
+          + (f", {skipped} skipped (ETA > {max_eta_days}d)" if skipped else ""))
     return rows_out
 
 
 # ════════════════════════════════════════════════════════════════════════
-#  Per-source worker: owns its OWN driver (Selenium is not thread-safe)
+#  Per-source parse: uses a driver PASSED IN by the worker (driver is reused
+#  across many sources, so we pay Chrome's startup cost once per worker, not
+#  once per source — the single biggest speed-up for large source lists).
 # ════════════════════════════════════════════════════════════════════════
-def scrape_source(source: dict) -> list:
-    # Name the worker thread after the source so log lines are attributable.
-    try:
-        threading.current_thread().name = str(source.get("sourceName", "source"))[:30]
-    except Exception:
-        pass
+def scrape_source(source: dict, driver) -> list:
     parser = detect_parser(source)
-    driver = None
     try:
-        driver = build_driver()
         if parser == "vesseltracker":
             return parse_vesseltracker(driver, source)
         return parse_myshiptracking(driver, source)
     except Exception as ex:
-        logger.exception("%s (%s): unhandled error: %s",
-                         source.get('sourceName', '?'), parser, ex)
+        print(f"[error] {source.get('sourceName', '?')} ({parser}): {ex}", file=sys.stderr)
         return []
+
+
+def _worker(name: str, task_queue, results: list, lock):
+    """One persistent browser processes sources from the shared queue until empty."""
+    driver = None
+    try:
+        driver = build_driver()
+    except Exception as ex:
+        print(f"[error] worker {name}: could not start Chrome: {ex}", file=sys.stderr)
+        return
+    try:
+        while True:
+            try:
+                source = task_queue.get_nowait()
+            except _QueueEmpty:
+                break
+            try:
+                rows = scrape_source(source, driver)
+            except Exception as ex:
+                print(f"[error] {source.get('sourceName', '?')}: {ex}", file=sys.stderr)
+                rows = []
+            finally:
+                task_queue.task_done()
+            # Reset implicit wait between sources (VesselTracker sets it to 0).
+            try:
+                driver.implicitly_wait(0)
+            except WebDriverException:
+                pass
+            with lock:
+                results.append((source, rows))
     finally:
         if driver is not None:
             try:
@@ -759,52 +699,51 @@ def main():
     config_path, output_path = sys.argv[1], sys.argv[2]
     global DIAG_DIR
     DIAG_DIR = os.path.dirname(os.path.abspath(output_path)) or "."
-    setup_logging(DIAG_DIR)
     with open(config_path, "r", encoding="utf-8") as f:
         config = json.load(f)
 
     sources = config.get("sources", [])
-    # Global past-date window (days). A source may override with its own "daysBack".
-    global_days_back = int(config.get("daysBack", DEFAULT_DAYS_BACK) or DEFAULT_DAYS_BACK)
-    global_keep_unknown = bool(config.get("keepUnknownDates", True))
+    # Global ETA cutoff (days). A source may override with its own "maxEtaDays".
+    global_max_eta = int(config.get("maxEtaDays", DEFAULT_MAX_ETA_DAYS) or DEFAULT_MAX_ETA_DAYS)
     for s in sources:
-        s.setdefault("daysBack", global_days_back)
-        s.setdefault("keepUnknownDates", global_keep_unknown)
-    # Cap concurrent browsers — each source spawns a full Chrome instance.
-    max_workers = int(config.get("maxWorkers", 4) or 4)
-    max_workers = max(1, min(max_workers, len(sources) or 1))
-    logger.info("Loaded %d source(s); maxWorkers=%d; window=today + previous %d day(s).",
-                len(sources), max_workers, global_days_back)
+        s.setdefault("maxEtaDays", global_max_eta)
 
-    # ── Fetch every source SIMULTANEOUSLY, then MERGE the results ──────────
+    # Concurrent browsers. Each is a full Chrome (~150-300 MB RAM), so scale to the
+    # server: 8 is a good default; bump via config "maxWorkers" or env SCRAPER_WORKERS.
+    default_workers = int(os.environ.get("SCRAPER_WORKERS", "8") or 8)
+    max_workers = int(config.get("maxWorkers", default_workers) or default_workers)
+    max_workers = max(1, min(max_workers, len(sources) or 1))
+
+    # ── Fill a shared queue, then run N persistent browsers against it ────────
+    task_queue = _Queue()
+    for s in sources:
+        task_queue.put(s)
+
+    raw_results, lock = [], _threading.Lock()
+    threads = []
+    for i in range(max_workers):
+        th = _threading.Thread(target=_worker,
+                               args=(str(i + 1), task_queue, raw_results, lock),
+                               daemon=True)
+        th.start()
+        threads.append(th)
+    for th in threads:
+        th.join()
+
+    # ── MERGE + de-duplicate across all sources/pages ─────────────────────────
     vessels, seen = [], set()
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        future_to_src = {pool.submit(scrape_source, s): s for s in sources}
-        for fut in as_completed(future_to_src):
-            src = future_to_src[fut]
-            try:
-                source_rows = fut.result()
-            except Exception as ex:
-                logger.exception("%s: worker failed: %s", src.get('sourceName', '?'), ex)
+    for _src, source_rows in raw_results:
+        for rec in source_rows:
+            key = (rec.get("IMO_Number") or rec["VesselName"], rec["PortID"])
+            if key in seen:
                 continue
-            dupes = 0
-            for rec in source_rows:
-                key = (rec.get("IMO_Number") or rec["VesselName"], rec["PortID"])
-                if key in seen:                      # dedupe across sources/pages
-                    dupes += 1
-                    continue
-                seen.add(key)
-                vessels.append(rec)
-            logger.info("%s: merged %d row(s) (%d duplicate(s) dropped).",
-                        src.get('sourceName', '?'), len(source_rows) - dupes, dupes)
+            seen.add(key)
+            vessels.append(rec)
 
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(vessels, f, indent=4)
 
-    logger.info("=== run finished: %d vessel(s) written to %s ===", len(vessels), output_path)
-    # stdout is reserved for the machine-readable status the app parses:
-    print(json.dumps({"total": len(vessels), "sources": len(sources),
-                      "workers": max_workers, "log": LOG_PATH}))
+    print(json.dumps({"total": len(vessels), "sources": len(sources), "workers": max_workers}))
 
 
 if __name__ == "__main__":

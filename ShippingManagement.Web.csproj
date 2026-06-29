@@ -6,9 +6,13 @@
     <RootNamespace>ShippingManagement.Web</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Remove="LicenseTool - Copy\**" />
     <Compile Remove="LicenseTool\**" />
+    <Content Remove="LicenseTool - Copy\**" />
     <Content Remove="LicenseTool\**" />
+    <EmbeddedResource Remove="LicenseTool - Copy\**" />
     <EmbeddedResource Remove="LicenseTool\**" />
+    <None Remove="LicenseTool - Copy\**" />
     <None Remove="LicenseTool\**" />
   </ItemGroup>
   <ItemGroup>
