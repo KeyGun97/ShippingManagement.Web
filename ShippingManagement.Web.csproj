@@ -23,5 +23,6 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="Scripts\scraper.py" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Scripts\vesseltracker_scraper.py" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

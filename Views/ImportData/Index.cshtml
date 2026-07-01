@@ -41,10 +41,12 @@
         <div class="col-auto">
             <label class="form-label small mb-0">Import date</label>
             <input type="date" name="date" id="filterDate" value="@d.ToString("yyyy-MM-dd")" class="form-control form-control-sm" list="dates" />
-            <datalist id="dates">@foreach (var id_ in importDates) {
-            <option value="@id_.ToString("yyyy-MM-dd")"></option>
-                        }
-</datalist>
+            <datalist id="dates">
+                @foreach (var id_ in importDates)
+                {
+                    <option value="@id_.ToString("yyyy-MM-dd")"></option>
+                }
+            </datalist>
         </div>
         <div class="col-auto">
             <label class="form-label small mb-0">Country</label>
@@ -128,6 +130,7 @@
                                    asp-route-country="@r.Country"
                                    asp-route-vesselType="@r.VesselType"
                                    asp-route-origin="@r.Origin"
+                                   asp-route-returnUrl="@(Context.Request.Path + Context.Request.QueryString)"
                                    title="Register this vessel — opens the form pre-filled (name, port, country, type, origin)">@r.IMO_Number</a>
 
                             }

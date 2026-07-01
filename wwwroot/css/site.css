@@ -471,3 +471,35 @@ td.text-muted.text-center { font-style: italic; }
     .content { padding: 0 !important; max-width: none; }
     .card { box-shadow: none; border-color:#ccc; }
 }
+
+/* ============================================================
+   Sortable table headers (driven by wwwroot/js/table-sort.js)
+   ============================================================ */
+.table th.th-sortable {
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+    padding-right: 1.25rem;            /* room for the sort arrow */
+    white-space: nowrap;
+}
+.table th.th-sortable::after {
+    content: "\2195";                  /* ↕ neutral indicator */
+    position: absolute;
+    right: 0.45rem;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.72em;
+    line-height: 1;
+    opacity: 0.28;
+    transition: opacity 0.12s ease;
+}
+.table th.th-sortable:hover::after { opacity: 0.6; }
+.table th.th-sortable.sorted-asc::after  { content: "\2191"; opacity: 1; }   /* ↑ */
+.table th.th-sortable.sorted-desc::after { content: "\2193"; opacity: 1; }   /* ↓ */
+.table th.th-sortable.sorted-asc,
+.table th.th-sortable.sorted-desc { color: var(--bs-primary, #0d6efd); }
+
+@media print {
+    .table th.th-sortable { cursor: auto; padding-right: inherit; }
+    .table th.th-sortable::after { display: none !important; }
+}

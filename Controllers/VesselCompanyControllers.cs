@@ -43,11 +43,14 @@ namespace ShippingManagement.Web.Controllers
         [HttpGet]
         public IActionResult Register(string? imo = null, string? name = null,
                                       string? port = null, string? country = null,
-                                      string? vesselType = null, string? origin = null)
+                                      string? vesselType = null, string? origin = null,
+                                      string? returnUrl = null)
         {
             var types = _repo.GetVesselTypes().ToList();
             ViewBag.Types = types;
             ViewBag.Companies = _repo.GetAllCompanies().ToList();
+            // Where to go back to after Save — e.g. the Import Data page that linked here.
+            ViewBag.ReturnUrl = Url.IsLocalUrl(returnUrl) ? returnUrl : null;
 
             Vessel model = imo is not null
                 ? _repo.GetVesselByIMO(imo) ?? new Vessel { IMO_Number = imo, VesselName = name ?? "" }
@@ -73,17 +76,20 @@ namespace ShippingManagement.Web.Controllers
         }
 
         [HttpPost, ValidateAntiForgeryToken]
-        public IActionResult Register(Vessel vessel)
+        public IActionResult Register(Vessel vessel, string? returnUrl = null)
         {
             if (string.IsNullOrWhiteSpace(vessel.IMO_Number) || string.IsNullOrWhiteSpace(vessel.VesselName))
             {
                 TempData["Error"] = "IMO Number and Vessel Name are required (data is saved/keyed by IMO).";
-                return RedirectToAction(nameof(Register), new { imo = vessel.IMO_Number });
+                return RedirectToAction(nameof(Register), new { imo = vessel.IMO_Number, returnUrl });
             }
             vessel.IMO_Number = vessel.IMO_Number.Trim();
             vessel.GenerateEmail = "master." + vessel.VesselName + "@amosconnect.com\nmaster@" + vessel.VesselName + ".amosconnect.com\n" + vessel.VesselName + "@skyfile.com\nmaster." + vessel.VesselName + "@fleetmail.inmarsat.com\n" + vessel.VesselName + "@gtmailplus.com\n" + vessel.VesselName + "@speedmailplus.com\n" + vessel.VesselName + "@shipmail.net\n" + vessel.VesselName + "@ctmail.1749.cn\n" + vessel.VesselName + "@gtships.com\naquavita.mint@gtships.com\n" + vessel.VesselName + "@infinitymail.eu\n" + vessel.VesselName + "@om-email.net";
             _repo.SaveVessel(vessel);
             TempData["Ok"] = $"Vessel '{vessel.VesselName}' (IMO {vessel.IMO_Number}) saved.";
+            // Came from Import Data (or anywhere else that passed returnUrl) → go back there.
+            if (Url.IsLocalUrl(returnUrl))
+                return Redirect(returnUrl!);
             return RedirectToAction(nameof(Index), new { q = vessel.IMO_Number });
         }
 

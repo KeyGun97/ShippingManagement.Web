@@ -367,7 +367,8 @@ namespace ShippingManagement.Web.Data
                       AND ((@IMO_Number IS NOT NULL AND d.IMO_Number = @IMO_Number)
                         OR (@IMO_Number IS NULL     AND d.IMO_Number IS NULL AND d.VesselName = @VesselName))
                       AND d.ImportDate = @ImportDate
-                        AND @VesselType IN (select distinct temp.TypeName from VesselTypes temp))";
+                        AND @VesselType IN (select distinct temp.TypeName from VesselTypes temp)
+                        AND @VesselType is not null )";
             using var c = Conn();
             c.Execute(sql, rows);
         }

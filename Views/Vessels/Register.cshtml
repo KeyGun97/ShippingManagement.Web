@@ -1,168 +1,203 @@
 @model Vessel
-@{ ViewData["Title"] = "Register Vessel"; }
+@{
+    ViewData["Title"] = "Register Vessel";
+}
 <h3 class="mb-3"><i class="bi bi-water me-2"></i>Vessel Registration Form</h3>
 <p class="text-muted">Data is saved by <strong>IMO Number</strong>. Enter IMO and press <kbd>Tab</kbd> — if the vessel exists, its data loads automatically; otherwise enter details manually.</p>
 
 <form method="post" asp-action="Register" id="vesselForm">
-@Html.AntiForgeryToken()
-<div class="card shadow-sm mb-3"><div class="card-body row g-3">
-    <div class="col-md-3">
-        <label class="form-label fw-bold">IMO # *</label>
-        <input asp-for="IMO_Number" id="imo" class="form-control" required maxlength="15" />
-        <div id="imoMsg" class="form-text"></div>
-    </div>
-    <div class="col-md-4">
-        <label class="form-label fw-bold">Vessel Name *</label>
-        <input asp-for="VesselName" id="VesselName" class="form-control" required />
-    </div>
-    <div class="col-md-3">
-        <label class="form-label">Vessel Type</label>
-        <select asp-for="VesselTypeID" id="VesselTypeID" class="form-select">
-            <option value="">— select —</option>
-            @foreach (VesselType t in ViewBag.Types) { <option value="@t.TypeID">@t.TypeName</option> }
-        </select>
-    </div>
-    <div class="col-md-2">
-        <label class="form-label">Call Sign #</label>
-        <input asp-for="CallSign" id="CallSign" class="form-control" />
-    </div>
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="returnUrl" value="@ViewBag.ReturnUrl" />
+    <div class="card shadow-sm mb-3">
+        <div class="card-body row g-3">
+            <div class="col-md-3">
+                <label class="form-label fw-bold">IMO # *</label>
+                <input asp-for="IMO_Number" id="imo" class="form-control" required maxlength="15" />
+                <div id="imoMsg" class="form-text"></div>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label fw-bold">Vessel Name *</label>
+                <input asp-for="VesselName" id="VesselName" class="form-control" required />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Vessel Type</label>
+                <select asp-for="VesselTypeID" id="VesselTypeID" class="form-select">
+                    <option value="">— select —</option>
+                    @foreach (VesselType t in ViewBag.Types)
+                    {
+                        <option value="@t.TypeID">@t.TypeName</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Call Sign #</label>
+                <input asp-for="CallSign" id="CallSign" class="form-control" />
+            </div>
 
-    <div class="col-md-4">
-        <label class="form-label fw-bold">Company Name</label>
-        <div class="input-group">
-            @{ var companies = (List<Company>)ViewBag.Companies;
-               var selectedCompany = companies.FirstOrDefault(c => c.CompanyID == Model.CompanyID)?.CompanyName; }
-            <input list="companyList" id="companyName" class="form-control"
-                   value="@selectedCompany" placeholder="Type company name…" />
-            <button type="button" class="btn btn-outline-success" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
-                <i class="bi bi-plus"></i> Add Company
-            </button>
+            <div class="col-md-4">
+                <label class="form-label fw-bold">Company Name</label>
+                <div class="input-group">
+                    @{
+                        var companies = (List<Company>)ViewBag.Companies;
+                        var selectedCompany = companies.FirstOrDefault(c => c.CompanyID == Model.CompanyID)?.CompanyName;
+                    }
+                    <input list="companyList" id="companyName" class="form-control"
+                           value="@selectedCompany" placeholder="Type company name…" />
+                    <button type="button" class="btn btn-outline-success" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
+                        <i class="bi bi-plus"></i> Add Company
+                    </button>
+                </div>
+                <datalist id="companyList">
+                    @foreach (var c in companies)
+                    {
+                        <option data-id="@c.CompanyID" value="@c.CompanyName"></option>
+                    }
+                </datalist>
+                <input type="hidden" asp-for="CompanyID" id="CompanyID" />
+                <div id="companyMsg" class="form-text"></div>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Company Address <span class="text-muted">(auto-filled, read-only)</span></label>
+                <input id="companyAddress" class="form-control" readonly />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Company Tel.</label>
+                <input id="companyTel" class="form-control" readonly />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Fleet Size</label>
+                <input id="fleetSize" class="form-control" readonly />
+            </div>
+
+            <div class="col-md-3"><label class="form-label">Port</label><input asp-for="Port" id="Port" class="form-control" /></div>
+            <div class="col-md-2"><label class="form-label">ETA</label><input asp-for="ETA" id="ETA" class="form-control" /></div>
+            <div class="col-md-3"><label class="form-label">Country</label><input asp-for="Country" id="Country" class="form-control" /></div>
+            <div class="col-md-3">
+                <label class="form-label">Origin <span class="text-muted">(from import, read-only)</span></label>
+                <input id="Origin" class="form-control" value="@ViewBag.Origin" readonly />
+            </div>
+            <div class="col-md-2"><label class="form-label">Phone No</label><input asp-for="PhoneNo" id="PhoneNo" class="form-control" /></div>
+            <div class="col-md-2">
+                <label class="form-label">Terms</label>
+                <select asp-for="Terms" id="Terms" class="form-select"><option value="">—</option><option>Credit</option><option>Cash</option></select>
+            </div>
+            <div class="col-md-6"><label class="form-label">Address</label><input asp-for="Address" id="Address" class="form-control" /></div>
+            <div class="col-md-3">
+                <label class="form-label">Status</label>
+                <select asp-for="Status" id="Status" class="form-select">
+                    <option>Active</option>
+                    <option>Inactive</option>
+                    <option>Scrapped</option>
+                    <option>Under Repair</option>
+                </select>
+            </div>
         </div>
-        <datalist id="companyList">
-            @foreach (var c in companies) { <option data-id="@c.CompanyID" value="@c.CompanyName"></option> }
-        </datalist>
-        <input type="hidden" asp-for="CompanyID" id="CompanyID" />
-        <div id="companyMsg" class="form-text"></div>
-    </div>
-    <div class="col-md-4">
-        <label class="form-label">Company Address <span class="text-muted">(auto-filled, read-only)</span></label>
-        <input id="companyAddress" class="form-control" readonly />
-    </div>
-    <div class="col-md-2">
-        <label class="form-label">Company Tel.</label>
-        <input id="companyTel" class="form-control" readonly />
-    </div>
-    <div class="col-md-2">
-        <label class="form-label">Fleet Size</label>
-        <input id="fleetSize" class="form-control" readonly />
     </div>
 
-    <div class="col-md-3"><label class="form-label">Port</label><input asp-for="Port" id="Port" class="form-control" /></div>
-    <div class="col-md-2"><label class="form-label">ETA</label><input asp-for="ETA" id="ETA" class="form-control" /></div>
-    <div class="col-md-3"><label class="form-label">Country</label><input asp-for="Country" id="Country" class="form-control" /></div>
-    <div class="col-md-3">
-        <label class="form-label">Origin <span class="text-muted">(from import, read-only)</span></label>
-        <input id="Origin" class="form-control" value="@ViewBag.Origin" readonly />
+    <div class="card shadow-sm mb-3">
+        <div class="card-header fw-bold">Email Contacts (all included in Daily Report & exports)</div>
+        <div class="card-body row g-3">
+            <div class="col-md-4"><label class="form-label">Confirm Email</label><textarea asp-for="ConfirmEmail" id="ConfirmEmail" class="form-control" rows="2"></textarea></div>
+            <div class="col-md-4"><label class="form-label">Purchase Email</label><textarea asp-for="PurchaseEmail" id="PurchaseEmail" class="form-control" rows="2"></textarea></div>
+            <div class="col-md-4"><label class="form-label">Catering Email</label><textarea asp-for="CateringEmail" id="CateringEmail" class="form-control" rows="2"></textarea></div>
+            <div class="col-md-4"><label class="form-label">Generate Email</label><textarea asp-for="GenerateEmail" id="GenerateEmail" class="form-control" rows="2"></textarea></div>
+            <div class="col-md-4"><label class="form-label">Email Deck / Engine</label><textarea asp-for="DeckEngEmail" id="DeckEngEmail" class="form-control" rows="2"></textarea></div>
+            <div class="col-md-4"><label class="form-label">General Email</label><textarea asp-for="GeneralEmail" id="GeneralEmail" class="form-control" rows="2"></textarea></div>
+        </div>
     </div>
-    <div class="col-md-2"><label class="form-label">Phone No</label><input asp-for="PhoneNo" id="PhoneNo" class="form-control" /></div>
-    <div class="col-md-2">
-        <label class="form-label">Terms</label>
-        <select asp-for="Terms" id="Terms" class="form-select"><option value="">—</option><option>Credit</option><option>Cash</option></select>
-    </div>
-    <div class="col-md-6"><label class="form-label">Address</label><input asp-for="Address" id="Address" class="form-control" /></div>
-    <div class="col-md-3">
-        <label class="form-label">Status</label>
-        <select asp-for="Status" id="Status" class="form-select">
-            <option>Active</option><option>Inactive</option><option>Scrapped</option><option>Under Repair</option>
-        </select>
-    </div>
-</div></div>
 
-<div class="card shadow-sm mb-3"><div class="card-header fw-bold">Email Contacts (all included in Daily Report & exports)</div>
-<div class="card-body row g-3">
-    <div class="col-md-4"><label class="form-label">Confirm Email</label><textarea asp-for="ConfirmEmail" id="ConfirmEmail" class="form-control" rows="2"></textarea></div>
-    <div class="col-md-4"><label class="form-label">Purchase Email</label><textarea asp-for="PurchaseEmail" id="PurchaseEmail" class="form-control" rows="2"></textarea></div>
-    <div class="col-md-4"><label class="form-label">Catering Email</label><textarea asp-for="CateringEmail" id="CateringEmail" class="form-control" rows="2"></textarea></div>
-    <div class="col-md-4"><label class="form-label">Generate Email</label><textarea asp-for="GenerateEmail" id="GenerateEmail" class="form-control" rows="2"></textarea></div>
-    <div class="col-md-4"><label class="form-label">Email Deck / Engine</label><textarea asp-for="DeckEngEmail" id="DeckEngEmail" class="form-control" rows="2"></textarea></div>
-    <div class="col-md-4"><label class="form-label">General Email</label><textarea asp-for="GeneralEmail" id="GeneralEmail" class="form-control" rows="2"></textarea></div>
-</div></div>
-
-<button class="btn btn-primary px-4"><i class="bi bi-save"></i> Save Vessel</button>
-<a class="btn btn-outline-secondary" asp-action="Index">Back to list</a>
+    <button class="btn btn-primary px-4"><i class="bi bi-save"></i> Save Vessel</button>
+    @if (!string.IsNullOrEmpty((string?)ViewBag.ReturnUrl))
+    {
+        <a class="btn btn-outline-secondary" href="@ViewBag.ReturnUrl">Back</a>
+    }
+    else
+    {
+        <a class="btn btn-outline-secondary" asp-action="Index">Back to list</a>
+    }
 </form>
 
 <!-- Add Company modal (V2: when company doesn't exist) -->
-<div class="modal fade" id="addCompanyModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
-    <div class="modal-header"><h5 class="modal-title">Add Company</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
-    <div class="modal-body row g-2">
-        <div class="col-12"><label class="form-label">Company Name *</label><input id="m_name" class="form-control" /></div>
-        <div class="col-12"><label class="form-label">Address</label><input id="m_address" class="form-control" /></div>
-        <div class="col-6"><label class="form-label">Country</label><input id="m_country" class="form-control" /></div>
-        <div class="col-6"><label class="form-label">Telephone</label><input id="m_tel" class="form-control" /></div>
-        <div class="col-6"><label class="form-label">General Email</label><input id="m_email" class="form-control" /></div>
-        <div class="col-6"><label class="form-label">Website</label><input id="m_web" class="form-control" /></div>
-        <div id="m_msg" class="text-danger small"></div>
+<div class="modal fade" id="addCompanyModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title">Add Company</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body row g-2">
+                <div class="col-12"><label class="form-label">Company Name *</label><input id="m_name" class="form-control" /></div>
+                <div class="col-12"><label class="form-label">Address</label><input id="m_address" class="form-control" /></div>
+                <div class="col-6"><label class="form-label">Country</label><input id="m_country" class="form-control" /></div>
+                <div class="col-6"><label class="form-label">Telephone</label><input id="m_tel" class="form-control" /></div>
+                <div class="col-6"><label class="form-label">General Email</label><input id="m_email" class="form-control" /></div>
+                <div class="col-6"><label class="form-label">Website</label><input id="m_web" class="form-control" /></div>
+                <div id="m_msg" class="text-danger small"></div>
+            </div>
+            <div class="modal-footer"><button id="m_save" class="btn btn-success">Save Company</button></div>
+        </div>
     </div>
-    <div class="modal-footer"><button id="m_save" class="btn btn-success">Save Company</button></div>
-</div></div></div>
+</div>
 
 @section Scripts {
-<script>
-const fields = ["VesselName","VesselTypeID","CallSign","Port","ETA","Country","Address","PhoneNo","Terms",
-                "ConfirmEmail","PurchaseEmail","CateringEmail","GenerateEmail","DeckEngEmail","GeneralEmail","Status"];
+    <script>
+        const fields = ["VesselName","VesselTypeID","CallSign","Port","ETA","Country","Address","PhoneNo","Terms",
+                        "ConfirmEmail","PurchaseEmail","CateringEmail","GenerateEmail","DeckEngEmail","GeneralEmail","Status"];
 
-// IMO + Tab → fetch (V2 workflow)
-$("#imo").on("change blur", function () {
-    const imo = $(this).val().trim();
-    if (!imo) return;
-    $("#imoMsg").text("Checking IMO…");
-    $.getJSON("/Vessels/FetchByImo", { imo }, function (r) {
-        if (r.ok) {
-            const v = r.vessel;
-            fields.forEach(f => { const k = f.charAt(0).toLowerCase() + f.slice(1); if (v[k] !== undefined && v[k] !== null) $("#" + f).val(v[k]); });
-            if (v.companyName) { $("#companyName").val(v.companyName).trigger("change"); }
-            $("#imoMsg").html("<span class='text-success'>Existing vessel loaded — editing record.</span>");
-        } else {
-            $("#imoMsg").html("<span class='text-warning'>" + r.message + "</span>");
+        // IMO + Tab → fetch (V2 workflow)
+        $("#imo").on("change blur", function () {
+            const imo = $(this).val().trim();
+            if (!imo) return;
+            $("#imoMsg").text("Checking IMO…");
+            $.getJSON("/Vessels/FetchByImo", { imo }, function (r) {
+                if (r.ok) {
+                    const v = r.vessel;
+                    fields.forEach(f => { const k = f.charAt(0).toLowerCase() + f.slice(1); if (v[k] !== undefined && v[k] !== null) $("#" + f).val(v[k]); });
+                    if (v.companyName) { $("#companyName").val(v.companyName).trigger("change"); }
+                    $("#imoMsg").html("<span class='text-success'>Existing vessel loaded — editing record.</span>");
+                } else {
+                    $("#imoMsg").html("<span class='text-warning'>" + r.message + "</span>");
+                }
+            });
+        });
+
+        // Company name → autofill (read-only) or prompt Add Company
+        $("#companyName").on("change", function () {
+            const name = $(this).val().trim();
+            if (!name) { $("#CompanyID").val(""); return; }
+            $.getJSON("/Vessels/FetchCompany", { name }, function (r) {
+                if (r.ok) {
+                    $("#CompanyID").val(r.company.companyID);
+                    $("#companyAddress").val(r.company.address || "");
+                    $("#companyTel").val(r.company.telephone || "");
+                    $("#fleetSize").val(r.company.fleetCount);
+                    $("#companyMsg").html("<span class='text-success'>Company linked. Fleet size updates automatically.</span>");
+                } else {
+                    $("#CompanyID").val("");
+                    $("#companyAddress,#companyTel,#fleetSize").val("");
+                    $("#companyMsg").html("<span class='text-warning'>" + r.message + "</span>");
+                }
+            });
+        });
+
+        // Add Company modal save (AJAX)
+        $("#m_save").on("click", function () {
+            $.post("/Companies/SaveAjax", {
+                CompanyName: $("#m_name").val(), Address: $("#m_address").val(), Country: $("#m_country").val(),
+                Telephone: $("#m_tel").val(), GeneralEmail: $("#m_email").val(), Website: $("#m_web").val()
+            }, function (r) {
+                if (!r.ok) { $("#m_msg").text(r.message); return; }
+                $("#companyList").append(`<option value="${r.companyName}"></option>`);
+                $("#companyName").val(r.companyName).trigger("change");
+                bootstrap.Modal.getInstance(document.getElementById('addCompanyModal')).hide();
+            });
+        });
+
+        // Restore selected values when editing
+        @if (Model.VesselTypeID is not null)
+        {
+            <text>$("#VesselTypeID").val("@Model.VesselTypeID");</text>
         }
-    });
-});
-
-// Company name → autofill (read-only) or prompt Add Company
-$("#companyName").on("change", function () {
-    const name = $(this).val().trim();
-    if (!name) { $("#CompanyID").val(""); return; }
-    $.getJSON("/Vessels/FetchCompany", { name }, function (r) {
-        if (r.ok) {
-            $("#CompanyID").val(r.company.companyID);
-            $("#companyAddress").val(r.company.address || "");
-            $("#companyTel").val(r.company.telephone || "");
-            $("#fleetSize").val(r.company.fleetCount);
-            $("#companyMsg").html("<span class='text-success'>Company linked. Fleet size updates automatically.</span>");
-        } else {
-            $("#CompanyID").val("");
-            $("#companyAddress,#companyTel,#fleetSize").val("");
-            $("#companyMsg").html("<span class='text-warning'>" + r.message + "</span>");
+        @if (!string.IsNullOrEmpty(Model.CompanyName))
+        {
+            <text>$("#companyName").val(@Json.Serialize(Model.CompanyName)).trigger("change");</text>
         }
-    });
-});
-
-// Add Company modal save (AJAX)
-$("#m_save").on("click", function () {
-    $.post("/Companies/SaveAjax", {
-        CompanyName: $("#m_name").val(), Address: $("#m_address").val(), Country: $("#m_country").val(),
-        Telephone: $("#m_tel").val(), GeneralEmail: $("#m_email").val(), Website: $("#m_web").val()
-    }, function (r) {
-        if (!r.ok) { $("#m_msg").text(r.message); return; }
-        $("#companyList").append(`<option value="${r.companyName}"></option>`);
-        $("#companyName").val(r.companyName).trigger("change");
-        bootstrap.Modal.getInstance(document.getElementById('addCompanyModal')).hide();
-    });
-});
-
-// Restore selected values when editing
-@if (Model.VesselTypeID is not null) { <text>$("#VesselTypeID").val("@Model.VesselTypeID");</text> }
-@if (!string.IsNullOrEmpty(Model.CompanyName)) { <text>$("#companyName").val(@Json.Serialize(Model.CompanyName)).trigger("change");</text> }
-</script>
+    </script>
 }
