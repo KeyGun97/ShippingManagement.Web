@@ -30,6 +30,7 @@ for you.
 
 import asyncio
 import json
+import logging
 import os
 import re
 import sys
@@ -38,6 +39,17 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from playwright.async_api import async_playwright, Page, TimeoutError as PWTimeout
+
+# ── Make the residual stderr output UTF-8 safe ────────────────────────────
+# Progress logging now goes to a .log file (see below), but the fatal-error
+# handler still writes one line to stderr for the web app to surface. On Windows
+# a redirected stderr defaults to cp1252 and can't encode some symbols, so force
+# UTF-8 (with replacement) to be safe.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 # --------------------------------------------------------------------------
 # Config
@@ -54,19 +66,35 @@ load_dotenv()
 # still be run straight from an IDE for debugging.
 _positional = [a for a in sys.argv[1:] if not a.startswith("-")]
 SCRIPT_DIR = Path(__file__).resolve().parent
+_default_paths_note = None
 if len(_positional) >= 2:
     CONFIG_PATH = Path(_positional[0])
     OUTPUT_PATH = Path(_positional[1])
 else:
     CONFIG_PATH = SCRIPT_DIR / "config_vesseltracker.json"
     OUTPUT_PATH = SCRIPT_DIR / "vesseltracker_results.json"
-    print(f"[info] No CLI paths given — using defaults:\n"
-          f"       config: {CONFIG_PATH}\n"
-          f"       output: {OUTPUT_PATH}", file=sys.stderr)
+    _default_paths_note = (f"No CLI paths given — using defaults: "
+                           f"config={CONFIG_PATH}, output={OUTPUT_PATH}")
 
 BASE_DIR = OUTPUT_PATH.parent
 DEBUG_DIR = BASE_DIR / "debug"
 DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+
+# ── File logging ──────────────────────────────────────────────────────────
+# All progress/diagnostics go to a .log file that sits alongside this run's
+# config + results (same ScraperData folder), overwritten each run (mode="w").
+# This replaces console printing, so nothing depends on the console code page.
+LOG_PATH = OUTPUT_PATH.with_suffix(".log")
+logger = logging.getLogger("vesseltracker")
+logger.setLevel(logging.INFO)
+logger.propagate = False
+logger.handlers.clear()
+_fh = logging.FileHandler(LOG_PATH, mode="w", encoding="utf-8")
+_fh.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s %(message)s",
+                                   datefmt="%Y-%m-%d %H:%M:%S"))
+logger.addHandler(_fh)
+if _default_paths_note:
+    logger.info(_default_paths_note)
 
 VT_EMAIL = "operations@worldshipchandler.com"#os.getenv("VT_EMAIL")
 VT_PASSWORD ="Wsc@786." #os.getenv("VT_PASSWORD")
@@ -75,18 +103,26 @@ LOGIN_URL = "https://cockpit.vesseltracker.com/"
 HEADLESS = "--headless" in sys.argv          # default: headed (visible), so you can watch it live
 LIMIT = None
 WORKERS = None                               # concurrent tabs; overrides config "maxWorkers"
+_CLI_NAV_TIMEOUT = None                       # per-attempt navigation timeout (ms) from CLI
 for arg in sys.argv:
     if arg.startswith("--limit="):
         LIMIT = int(arg.split("=", 1)[1])
     elif arg.startswith("--workers="):
         WORKERS = int(arg.split("=", 1)[1])
+    elif arg.startswith("--nav-timeout="):
+        _CLI_NAV_TIMEOUT = int(arg.split("=", 1)[1])
 
 # How many ports to scrape at once (concurrent tabs sharing ONE logged-in
 # session). Overridable per run via config "maxWorkers" or --workers=; env is
 # the final fallback. Kept modest by default so we don't hammer the account.
 DEFAULT_WORKERS = int(os.environ.get("VT_WORKERS", "4") or 4)
 
-NAV_TIMEOUT_MS = 30_000
+# Per-attempt page-navigation timeout (ms). cockpit.vesseltracker.com is a heavy
+# Angular SPA that can be slow to respond, so this is generous — and navigations
+# are also retried (see _goto_with_retries). Precedence: --nav-timeout= > config
+# "navTimeoutMs" > this default (resolved in main()).
+NAV_TIMEOUT_MS = 45_000
+NAV_RETRIES = 3                 # attempts for the login navigation
 GRID_STABLE_CHECKS = 3          # consecutive equal row-counts before we trust the grid is loaded
 GRID_STABLE_INTERVAL_S = 0.6
 GRID_MAX_WAIT_S = 20
@@ -95,8 +131,8 @@ EXPECTED_HEADERS = ["name", "country", "type", "eta", "received via", "owner", "
 
 
 def log(msg: str):
-    ts = datetime.now().strftime("%H:%M:%S")
-    print(f"[{ts}] {msg}", flush=True)
+    """Write a line to the run's .log file (in the ScraperData folder)."""
+    logger.info(msg)
 
 
 # --------------------------------------------------------------------------
@@ -132,12 +168,42 @@ async def dismiss_cookie_banner(page: Page):
         pass  # no banner present -- nothing to do
 
 
+async def _goto_with_retries(page: Page, url: str, *, attempts: int = 2,
+                             wait_until: str = "domcontentloaded",
+                             label: str = "") -> bool:
+    """Navigate to `url`, retrying on timeout / transient navigation errors.
+    Returns True on success, False if every attempt fails. A single 30s goto is
+    fragile against a slow SPA or a brief network hiccup, so we retry with a
+    short linear backoff."""
+    tag = f" ({label})" if label else ""
+    for attempt in range(1, attempts + 1):
+        try:
+            await page.goto(url, wait_until=wait_until, timeout=NAV_TIMEOUT_MS)
+            return True
+        except PWTimeout:
+            log(f"   ⚠ navigation timeout{tag}, attempt {attempt}/{attempts}"
+                + (" — retrying..." if attempt < attempts else ""))
+        except Exception as e:
+            log(f"   ⚠ navigation error{tag}: {e} (attempt {attempt}/{attempts})")
+        if attempt < attempts:
+            await page.wait_for_timeout(2000 * attempt)  # 2s, 4s, ...
+    return False
+
+
 async def login(page: Page):
     if not VT_EMAIL or not VT_PASSWORD:
         raise RuntimeError("VT_EMAIL / VT_PASSWORD not set. Check your .env file.")
 
     log("Navigating to VesselTracker cockpit...")
-    await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
+    if not await _goto_with_retries(page, LOGIN_URL, attempts=NAV_RETRIES, label="login page"):
+        await _dump_debug(page, "login_nav_timeout")
+        raise RuntimeError(
+            f"Could not load the login page {LOGIN_URL} after {NAV_RETRIES} attempts "
+            f"({NAV_TIMEOUT_MS // 1000}s each). The site may be temporarily slow or "
+            f"unreachable from this machine, or blocking headless access. Raise the "
+            f"timeout via config 'navTimeoutMs' or --nav-timeout=, and check "
+            f"debug/login_nav_timeout.png / .html."
+        )
 
     # Give the Angular app a moment to render the login form (or redirect to it).
     await page.wait_for_timeout(1500)
@@ -444,9 +510,7 @@ async def scrape_port(page: Page, source: dict, max_days: int):
     url = source["url"]
 
     #log(f"→ {port_name}, {country} ...")
-    try:
-        await page.goto(url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
-    except PWTimeout:
+    if not await _goto_with_retries(page, url, attempts=2, label=port_name):
         log(f"   ✗ Timed out loading {port_name}")
         return []
 
@@ -524,6 +588,11 @@ async def main():
         sources = sources[:LIMIT]
         log(f"--limit={LIMIT} set: only scraping the first {LIMIT} port(s).")
 
+    # Resolve the navigation timeout: --nav-timeout= wins, else config
+    # "navTimeoutMs", else the module default.
+    global NAV_TIMEOUT_MS
+    NAV_TIMEOUT_MS = _CLI_NAV_TIMEOUT or int(config.get("navTimeoutMs", NAV_TIMEOUT_MS) or NAV_TIMEOUT_MS)
+
     # Concurrency: all workers share ONE logged-in context (single login); each
     # drives its own tab. This is the main speed lever vs. the old one-at-a-time
     # loop that was timing out on large port lists.
@@ -585,9 +654,9 @@ if __name__ == "__main__":
             asyncio.run(main())
     except Exception as e:
         import traceback
-        # Print the real exception on the FIRST line so it survives any log
-        # truncation upstream (the app only keeps the head/tail of stderr), then
-        # the full traceback for detail.
+        # Full traceback goes to the .log file for diagnosis...
+        logger.error("FATAL: %s: %s\n%s", type(e).__name__, e, traceback.format_exc())
+        # ...and a single concise line to stderr so the web app can still surface
+        # the failure in its banner (it captures stderr, not the log file).
         print(f"FATAL: {type(e).__name__}: {e}", file=sys.stderr)
-        traceback.print_exc()
         sys.exit(1)

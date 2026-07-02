@@ -63,14 +63,14 @@ namespace ShippingManagement.Web.Services
                 {
                     list.Add(new EmailProfile
                     {
-                        Name        = child["Name"] ?? child.Key,
-                        Host        = child["Host"] ?? "",
-                        Port        = int.TryParse(child["Port"], out var p) ? p : 587,
-                        EnableSsl   = !bool.TryParse(child["EnableSsl"], out var ssl) || ssl,
-                        Username    = child["Username"],
-                        Password    = child["Password"],
+                        Name = child["Name"] ?? child.Key,
+                        Host = child["Host"] ?? "",
+                        Port = int.TryParse(child["Port"], out var p) ? p : 587,
+                        EnableSsl = !bool.TryParse(child["EnableSsl"], out var ssl) || ssl,
+                        Username = child["Username"],
+                        Password = child["Password"],
                         FromAddress = child["FromAddress"] ?? "no-reply@localhost",
-                        FromName    = child["FromName"] ?? "Shipping Management System"
+                        FromName = child["FromName"] ?? "Shipping Management System"
                     });
                 }
             }
@@ -80,14 +80,14 @@ namespace ShippingManagement.Web.Services
                 // Legacy single-account configuration.
                 list.Add(new EmailProfile
                 {
-                    Name        = "Default",
-                    Host        = cfg["Email:Host"] ?? "",
-                    Port        = cfg.GetValue("Email:Port", 587),
-                    EnableSsl   = cfg.GetValue("Email:EnableSsl", true),
-                    Username    = cfg["Email:Username"],
-                    Password    = cfg["Email:Password"],
+                    Name = "Default",
+                    Host = cfg["Email:Host"] ?? "",
+                    Port = cfg.GetValue("Email:Port", 587),
+                    EnableSsl = cfg.GetValue("Email:EnableSsl", true),
+                    Username = cfg["Email:Username"],
+                    Password = cfg["Email:Password"],
                     FromAddress = cfg["Email:FromAddress"] ?? "no-reply@localhost",
-                    FromName    = cfg["Email:FromName"] ?? "Shipping Management System"
+                    FromName = cfg["Email:FromName"] ?? "Shipping Management System"
                 });
             }
             return list;
@@ -99,15 +99,15 @@ namespace ShippingManagement.Web.Services
             var profile = ResolveProfile(profileName);
             var log = new EmailLog
             {
-                Category    = msg.Category,
-                ToAddress   = msg.ToAddress,
-                Subject     = msg.Subject,
-                Body        = msg.Body,
-                IMO_Number  = msg.IMO_Number,
-                VesselName  = msg.VesselName,
+                Category = msg.Category,
+                ToAddress = msg.ToAddress,
+                Subject = msg.Subject,
+                Body = msg.Body,
+                IMO_Number = msg.IMO_Number,
+                VesselName = msg.VesselName,
                 CompanyName = msg.CompanyName,
-                SentBy      = sentBy,
-                SentVia     = profile.Name
+                SentBy = sentBy,
+                SentVia = profile.Name
             };
 
             if (string.IsNullOrWhiteSpace(msg.ToAddress))
@@ -137,6 +137,10 @@ namespace ShippingManagement.Web.Services
                 };
                 foreach (var addr in SplitAddresses(msg.ToAddress))
                     mail.To.Add(addr);
+                foreach (var addr in SplitAddresses(msg.CcAddress))
+                    mail.CC.Add(addr);
+                foreach (var addr in SplitAddresses(msg.BccAddress))
+                    mail.Bcc.Add(addr);
 
                 client.Send(mail);
                 log.Status = "Sent";
@@ -192,12 +196,12 @@ namespace ShippingManagement.Web.Services
         /// <summary>Resolves which stored address a category should use for a given arrival row.</summary>
         public static string? CategoryAddress(ArrivalLog a, string category) => category switch
         {
-            "Confirm"  => a.ConfirmEmail,
+            "Confirm" => a.ConfirmEmail,
             "Purchase" => a.PurchaseEmail,
             "Catering" => a.CateringEmail,
             "Generate" => a.GenerateEmail,
-            "DeckEng"  => a.DeckEngEmail,
-            _          => a.GeneralEmail ?? a.CompanyEmail
+            "DeckEng" => a.DeckEngEmail,
+            _ => a.GeneralEmail ?? a.CompanyEmail
         };
     }
 
@@ -220,6 +224,8 @@ namespace ShippingManagement.Web.Services
     {
         public string Category { get; set; } = "General";
         public string? ToAddress { get; set; }
+        public string? CcAddress { get; set; }
+        public string? BccAddress { get; set; }
         public string? Subject { get; set; }
         public string? Body { get; set; }
         public bool IsHtml { get; set; }

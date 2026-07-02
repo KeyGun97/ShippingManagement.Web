@@ -15,18 +15,26 @@
 
     string? Addr(ShippingManagement.Web.Models.ArrivalLog a) => category switch
     {
-        "Confirm"  => a.ConfirmEmail,
+        "Confirm" => a.ConfirmEmail,
         "Purchase" => a.PurchaseEmail,
         "Catering" => a.CateringEmail,
         "Generate" => a.GenerateEmail,
-        "DeckEng"  => a.DeckEngEmail,
-        _          => a.GeneralEmail ?? a.CompanyEmail
+        "DeckEng" => a.DeckEngEmail,
+        _ => a.GeneralEmail ?? a.CompanyEmail
     };
     var withAddr = Model.Where(a => !string.IsNullOrWhiteSpace(Addr(a))).ToList();
+
+    bool uploaded = ViewBag.Uploaded == true;
+    // Uploaded-document flow: To = Confirm Email, CC = Call Sign, BCC = Generated Email
+    // (see AutoEmailsController.Send). Confirm Email is mandatory.
+    var toList = uploaded ? Model.Where(a => !string.IsNullOrWhiteSpace(a.ConfirmEmail)).ToList() : withAddr;
+    int missingConfirm = uploaded ? Model.Count(a => string.IsNullOrWhiteSpace(a.ConfirmEmail)) : 0;
+    int sendCount = uploaded ? toList.Count : withAddr.Count;
 }
 
 <div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="mb-0"><i class="bi bi-envelope-paper"></i> Auto Emails
+    <h4 class="mb-0">
+        <i class="bi bi-envelope-paper"></i> Auto Emails
         <span class="text-muted fs-6">(category-based vessel emails)</span>
     </h4>
     @if (smtp)
@@ -115,6 +123,21 @@
             <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-x-circle"></i> Clear list</button>
         </form>
     </div>
+
+    <div class="alert alert-secondary py-2 small no-print mb-3">
+        <i class="bi bi-diagram-3"></i> Uploaded list routing:
+        <strong>Confirm Email → To</strong>,
+        <strong>Call Sign → CC</strong>,
+        <strong>Generated Email → BCC</strong>.
+        Confirm Email is required for every recipient.
+    </div>
+
+    <div id="missingBanner" class="alert alert-danger py-2 no-print mb-3" style="@(missingConfirm > 0 ? "" : "display:none")">
+        <i class="bi bi-exclamation-octagon"></i>
+        <strong><span id="missingCount">@missingConfirm</span> recipient(s) have no To (Confirm) email.</strong>
+        Confirm Email is used as the <em>To</em> address, so sending is blocked until every
+        recipient has one. Fill the highlighted <em>To</em> cells in the table below — no need to re-upload.
+    </div>
 }
 
 <div class="row g-3">
@@ -125,8 +148,13 @@
                 <a asp-controller="EmailTemplates" asp-action="Index" class="small"><i class="bi bi-pencil-square"></i> Manage templates</a>
             </div>
             <div class="card-body">
-                <form method="post" asp-action="Send"
-                      onsubmit="return confirm('Send the @category email to @withAddr.Count recipient(s) for @d.ToString("yyyy-MM-dd")?');">
+                <form method="post" asp-action="Send" id="sendForm"
+                      data-uploaded="@uploaded.ToString().ToLower()"
+                      data-missing-confirm="@missingConfirm"
+                      data-send-count="@sendCount"
+                      data-category="@category"
+                      data-date="@d.ToString("yyyy-MM-dd")"
+                      onsubmit="return confirmSend(this);">
                     @Html.AntiForgeryToken()
                     <input type="hidden" name="date" value="@d.ToString("yyyy-MM-dd")" />
                     <input type="hidden" name="country" value="@country" />
@@ -173,8 +201,8 @@
                         Placeholders: <code>{Vessel}</code> <code>{IMO}</code> <code>{Port}</code>
                         <code>{Country}</code> <code>{Company}</code> <code>{Date}</code>
                     </div>
-                    <button class="btn btn-success @(withAddr.Count == 0 ? "disabled" : "")">
-                        <i class="bi bi-send"></i> Send to @withAddr.Count recipient(s)
+                    <button id="sendBtn" class="btn btn-success @(sendCount == 0 ? "disabled" : "")">
+                        <i class="bi bi-send"></i> Send to <span id="sendCount">@sendCount</span> recipient(s)
                     </button>
                 </form>
             </div>
@@ -184,31 +212,92 @@
     <div class="col-lg-7">
         <div class="card">
             <div class="card-header d-flex justify-content-between">
-                <span>Recipients — @withAddr.Count of @Model.Count arrival(s) have a @category address</span>
+                @if (uploaded)
+                {
+                    <span>Recipients — <strong>@toList.Count</strong> of @Model.Count have a Confirm (To) address</span>
+                }
+                else
+                {
+                    <span>Recipients — @withAddr.Count of @Model.Count arrival(s) have a @category address</span>
+                }
                 <span class="small text-muted">@d.ToString("dd MMM yyyy")</span>
             </div>
             <div class="table-responsive" style="max-height:100vh">
                 <table class="table table-sm table-hover align-middle mb-0">
-                    <thead class="table-light sticky-top"><tr><th>Vessel</th><th>IMO</th><th>Port</th><th>Company</th><th>@category Email</th></tr></thead>
-                    <tbody>
-                        @foreach (var a in Model)
-                        {
-                            var addr = Addr(a);
-                            <tr class="@(a.CustomerStatus == "Regular" ? "regular-customer" : "") @(string.IsNullOrWhiteSpace(addr) ? "text-muted" : "")">
-                                <td class="fw-semibold">@a.VesselName</td>
-                                <td>@a.IMO_Number</td>
-                                <td>@a.PortName</td>
-                                <td>@a.CompanyName</td>
-                                <td class="small">
-                                    @if (string.IsNullOrWhiteSpace(addr))
-                                    { <span class="text-danger">— none —</span> }
-                                    else { @addr }
-                                </td>
+                    @if (uploaded)
+                    {
+                        <thead class="table-light sticky-top">
+                            <tr>
+                                <th>Vessel</th>
+                                <th>IMO</th>
+                                <th>Port</th>
+                                <th>Company</th>
+                                <th>To <span class="text-muted fw-normal">(Confirm)</span></th>
+                                <th>CC <span class="text-muted fw-normal">(Call Sign)</span></th>
+                                <th>BCC <span class="text-muted fw-normal">(Generated)</span></th>
                             </tr>
-                        }
-                        @if (Model.Count == 0)
-                        { <tr><td colspan="5" class="text-center text-muted py-4">No arrivals for this date/country. Generate a Daily Report first, or upload an Excel list above.</td></tr> }
-                    </tbody>
+                        </thead>
+                        <tbody id="recipRows">
+                            @foreach (var a in Model)
+                            {
+                                bool noConfirm = string.IsNullOrWhiteSpace(a.ConfirmEmail);
+                                <tr class="recip-row @(a.CustomerStatus == "Regular" ? "regular-customer" : "") @(noConfirm ? "table-danger" : "")">
+                                    <td class="fw-semibold">@a.VesselName</td>
+                                    <td>@a.IMO_Number</td>
+                                    <td>@a.PortName</td>
+                                    <td>@a.CompanyName</td>
+                                    <td style="min-width:220px">
+                                        <input form="sendForm" name="to" value="@a.ConfirmEmail"
+                                               class="form-control form-control-sm to-input" placeholder="required — add To address"
+                                               oninput="recalcRecipients()" />
+                                    </td>
+                                    <td style="min-width:200px">
+                                        <input form="sendForm" name="cc" value="@a.CallSign"
+                                               class="form-control form-control-sm" placeholder="optional" />
+                                    </td>
+                                    <td style="min-width:220px">
+                                        <input form="sendForm" name="bcc" value="@a.GenerateEmail"
+                                               class="form-control form-control-sm" placeholder="optional" />
+                                    </td>
+                                </tr>
+                            }
+                            @if (Model.Count == 0)
+                            {
+                                <tr><td colspan="7" class="text-center text-muted py-4">No recipients loaded. Upload an Excel list above.</td></tr>
+                            }
+                        </tbody>
+                    }
+                    else
+                    {
+                        <thead class="table-light sticky-top"><tr><th>Vessel</th><th>IMO</th><th>Port</th><th>Company</th><th>@category Email</th></tr></thead>
+                        <tbody>
+                            @foreach (var a in Model)
+                            {
+                                var addr = Addr(a);
+                                <tr class="@(a.CustomerStatus == "Regular" ? "regular-customer" : "") @(string.IsNullOrWhiteSpace(addr) ? "text-muted" : "")">
+                                    <td class="fw-semibold">@a.VesselName</td>
+                                    <td>@a.IMO_Number</td>
+                                    <td>@a.PortName</td>
+                                    <td>@a.CompanyName</td>
+                                    <td class="small">
+                                        @if (string.IsNullOrWhiteSpace(addr))
+                                        {
+                                            <span class="text-danger">— none —</span>
+                                        }
+                                        else
+                                        {
+
+                                            @addr
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                            @if (Model.Count == 0)
+                            {
+                                <tr><td colspan="5" class="text-center text-muted py-4">No arrivals for this date/country. Generate a Daily Report first, or upload an Excel list above.</td></tr>
+                            }
+                        </tbody>
+                    }
                 </table>
             </div>
         </div>
@@ -231,23 +320,87 @@
                         <td class="small">@e.VesselName</td>
                         <td class="small">@e.Subject</td>
                         <td>
-                            @if (e.Status == "Sent") { <span class="badge bg-success">Sent</span> }
-                            else if (e.Status == "Failed") { <span class="badge bg-danger" title="@e.ErrorText">Failed</span> }
-                            else { <span class="badge bg-info">Logged</span> }
+                            @if (e.Status == "Sent")
+                            {
+                                <span class="badge bg-success">Sent</span>
+                            }
+                            else if (e.Status == "Failed")
+                            {
+
+                                <span class="badge bg-danger" title="@e.ErrorText">Failed</span>
+                            }
+                            else
+                            {
+
+                                <span class="badge bg-info">Logged</span>
+                            }
                         </td>
                     </tr>
                 }
-                @if (log.Count == 0) { <tr><td colspan="7" class="text-center text-muted py-3">No emails sent yet.</td></tr> }
+                @if (log.Count == 0)
+                {
+                    <tr><td colspan="7" class="text-center text-muted py-3">No emails sent yet.</td></tr>
+                }
             </tbody>
         </table>
     </div>
 </div>
 
 @section Scripts {
-<script>
-    // Templates supplied by the server (id -> subject/body/html). Picking one fills the form.
-    const emailTemplates = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
-        templates.ToDictionary(t => t.TemplateID, t => new { subject = t.Subject, body = t.Body, isHtml = t.IsHtml })));
+    <script>
+        // Recompute recipient count + missing-To highlight from the editable table cells.
+        function recalcRecipients() {
+            const rows = document.querySelectorAll('#recipRows .recip-row');
+            if (!rows.length) return;
+            let ok = 0, miss = 0;
+            rows.forEach(function (r) {
+                const to = r.querySelector('.to-input');
+                const has = to && to.value.trim().length > 0;
+                r.classList.toggle('table-danger', !has);
+                has ? ok++ : miss++;
+            });
+            const cnt = document.getElementById('sendCount');
+            if (cnt) cnt.textContent = ok;
+            const btn = document.getElementById('sendBtn');
+            if (btn) btn.classList.toggle('disabled', ok === 0);
+            const banner = document.getElementById('missingBanner');
+            const mc = document.getElementById('missingCount');
+            if (mc) mc.textContent = miss;
+            if (banner) banner.style.display = miss > 0 ? '' : 'none';
+        }
+        document.addEventListener('DOMContentLoaded', recalcRecipients);
+
+        // Send-form guard: To (Confirm) is mandatory. Count live from the table so inline
+        // edits are respected, and block the send if any To cell is empty.
+        function confirmSend(form) {
+            const uploaded = form.dataset.uploaded === 'true';
+            const category = form.dataset.category || 'email';
+            const date     = form.dataset.date || '';
+            let count = parseInt(form.dataset.sendCount || '0', 10);
+
+            if (uploaded) {
+                const rows = document.querySelectorAll('#recipRows .recip-row');
+                let miss = 0, ok = 0;
+                rows.forEach(function (r) {
+                    const to = r.querySelector('.to-input');
+                    (to && to.value.trim()) ? ok++ : miss++;
+                });
+                if (miss > 0) {
+                    alert('Cannot send: ' + miss + ' recipient(s) have no To (Confirm) email.\n\n' +
+                          'Add a To address in the highlighted rows, then send.');
+                    return false;
+                }
+                count = ok;
+            }
+            if (count === 0) { alert('There are no recipients with a valid To address.'); return false; }
+            const routing = uploaded ? '\n(To = Confirm, CC = Call Sign, BCC = Generated)' : '';
+            return confirm('Send the ' + category + ' email to ' + count +
+                           ' recipient(s) for ' + date + '?' + routing);
+        }
+
+        // Templates supplied by the server (id -> subject/body/html). Picking one fills the form.
+        const emailTemplates = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
+                    templates.ToDictionary(t => t.TemplateID, t => new { subject = t.Subject, body = t.Body, isHtml = t.IsHtml })));
 
     document.getElementById('templateSelect').addEventListener('change', function () {
         const t = emailTemplates[this.value];

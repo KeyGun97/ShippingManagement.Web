@@ -43,6 +43,7 @@ output.json: flat list of scraped vessel rows the app imports into ScrapedData.
 """
 
 import json
+import logging
 import os
 import re
 import sys
@@ -56,6 +57,43 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.common.exceptions import TimeoutException, WebDriverException
+
+
+# Make the residual stderr output UTF-8 safe: progress logging goes to a .log
+# file (see _configure_logging), but the fatal-error handler still writes one
+# line to stderr for the web app to surface. On Windows a redirected stderr
+# defaults to cp1252 and can't encode some symbols, so force UTF-8.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+
+# ── File logging ──────────────────────────────────────────────────────────
+# All progress/diagnostics go to a .log file alongside this run's config +
+# results (same ScraperData folder), overwritten each run. The FileHandler is
+# attached once we know the output path (see _configure_logging in main()).
+# logging is thread-safe, so the concurrent worker threads can log freely.
+logger = logging.getLogger("myshiptracking")
+logger.setLevel(logging.INFO)
+logger.propagate = False
+
+
+def _configure_logging(output_path):
+    log_path = Path(output_path).with_suffix(".log")
+    logger.handlers.clear()
+    fh = logging.FileHandler(log_path, mode="w", encoding="utf-8")
+    fh.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s %(message)s",
+                                      datefmt="%Y-%m-%d %H:%M:%S"))
+    logger.addHandler(fh)
+    logger.info("Log file: %s", log_path)
+    return log_path
+
+
+def log(msg: str):
+    """Write an informational line to the run's .log file."""
+    logger.info(msg)
 
 
 # Default ETA window (days). A run may override via config "maxDays"/"maxEtaDays".
@@ -243,7 +281,7 @@ class MyShipTrackingScraper(BaseScraper):
              ".../vessels?...&pp=50&page=2",
              ".../vessels?...&pp=50&page=3"]"""
         url = source["url"]
-        print(url)
+        logger.info("Building page URLs for: %s", url)
         start = int(source.get("startPage", 1) or 1)
         end = int(source.get("endPage", start) or start)
         if end < start:
@@ -259,9 +297,9 @@ class MyShipTrackingScraper(BaseScraper):
         rows_out = []
         name = source.get("sourceName", "MyShipTracking")
         urls = self.build_page_urls(source)
-        print(f"[info] {name} ({source.get('portName')}) myshiptracking: "
-              f"{len(urls)} page URL(s) to scrape "
-              f"(pages {source.get('startPage')}..{source.get('endPage')}).")
+        logger.info("%s (%s) myshiptracking: %d page URL(s) to scrape (pages %s..%s).",
+                    name, source.get('portName'), len(urls),
+                    source.get('startPage'), source.get('endPage'))
 
         for page_no, url in enumerate(urls, start=int(source.get("startPage", 1) or 1)):
             try:
@@ -273,11 +311,11 @@ class MyShipTrackingScraper(BaseScraper):
                     pass
                 rows = self.driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
             except Exception as ex:
-                print(f"[warn] {name} page {page_no}: {ex}", file=sys.stderr)
+                logger.warning("%s page %s: %s", name, page_no, ex)
                 continue
 
             if not rows:                                  # empty page -> stop paging
-                print(f"[info] {name} page {page_no}: empty — stopping pagination.")
+                logger.info("%s page %s: empty — stopping pagination.", name, page_no)
                 break
 
             page_hits, page_skipped = 0, 0
@@ -305,8 +343,8 @@ class MyShipTrackingScraper(BaseScraper):
                 })
                 page_hits += 1
 
-            print(f"[info] {name} page {page_no}: {page_hits} kept"
-                  + (f", {page_skipped} skipped (ETA > {self.max_days}d)" if page_skipped else ""))
+            logger.info("%s page %s: %d kept%s", name, page_no, page_hits,
+                        (f", {page_skipped} skipped (ETA > {self.max_days}d)" if page_skipped else ""))
 
         return rows_out
 
@@ -319,7 +357,7 @@ def _mst_worker(name: str, task_queue, results: list, lock, max_days: int):
     try:
         driver = build_driver()
     except Exception as ex:
-        print(f"[error] worker {name}: could not start Chrome: {ex}", file=sys.stderr)
+        logger.error("worker %s: could not start Chrome: %s", name, ex)
         return
     scraper = MyShipTrackingScraper(driver, max_days)
     try:
@@ -331,7 +369,7 @@ def _mst_worker(name: str, task_queue, results: list, lock, max_days: int):
             try:
                 rows = scraper.scrape(source)
             except Exception as ex:
-                print(f"[error] {source.get('sourceName', '?')}: {ex}", file=sys.stderr)
+                logger.error("%s: %s", source.get('sourceName', '?'), ex)
                 rows = []
             finally:
                 task_queue.task_done()
@@ -375,13 +413,17 @@ def main():
     # hits a hard exit just because argv is empty.
     if len(sys.argv) >= 3:
         config_path, output_path = sys.argv[1], sys.argv[2]
+        default_note = None
     else:
         script_dir = Path(__file__).resolve().parent
         config_path = script_dir / "config_2.json"
         output_path = script_dir / "results.json"
-        print(f"[info] No CLI args given — using defaults:\n"
-              f"       config: {config_path}\n"
-              f"       output: {output_path}", file=sys.stderr)
+        default_note = (f"No CLI args given — using defaults: "
+                        f"config={config_path}, output={output_path}")
+
+    _configure_logging(output_path)
+    if default_note:
+        logger.info(default_note)
 
     with open(config_path, "r", encoding="utf-8") as f:
         config = json.load(f)
@@ -393,8 +435,8 @@ def main():
     default_workers = int(os.environ.get("SCRAPER_WORKERS", "8") or 8)
     max_workers = int(config.get("maxWorkers", default_workers) or default_workers)
 
-    print(f"[info] MyShipTracking: {len(sources)} source(s), "
-          f"up to {max_workers} browser(s).")
+    logger.info("MyShipTracking: %d source(s), up to %d browser(s).",
+                len(sources), max_workers)
     raw_results = scrape_myshiptracking_sources(sources, max_days, max_workers)
 
     # ── MERGE + de-duplicate across all sources/pages ─────────────────────
@@ -410,11 +452,20 @@ def main():
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(vessels, f, indent=4)
 
-    print(json.dumps({"total": len(vessels),
-                      "sources": len(sources),
-                      "maxDays": max_days,
-                      "workers": max_workers}))
+    logger.info("Done. total=%d sources=%d maxDays=%d workers=%d — results written to %s",
+                len(vessels), len(sources), max_days, max_workers, output_path)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        import traceback
+        # Full traceback to the .log file (if configured); one concise line to
+        # stderr so the web app can still surface the failure in its banner.
+        try:
+            logger.error("FATAL: %s: %s\n%s", type(e).__name__, e, traceback.format_exc())
+        except Exception:
+            pass
+        print(f"FATAL: {type(e).__name__}: {e}", file=sys.stderr)
+        sys.exit(1)

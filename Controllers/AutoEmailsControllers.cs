@@ -24,7 +24,7 @@ namespace ShippingManagement.Web.Controllers
         { _repo = repo; _email = email; }
 
         // Session keys for the optional Excel-uploaded recipient list (overrides DB arrivals while present).
-        private const string RecipKey     = "AutoEmail.Recipients";
+        private const string RecipKey = "AutoEmail.Recipients";
         private const string RecipFileKey = "AutoEmail.RecipientsFile";
 
         public IActionResult Index(DateTime? date, string? country, string category = "Generate", bool regularOnly = false)
@@ -39,7 +39,7 @@ namespace ShippingManagement.Web.Controllers
             {
                 foreach (var r in uploaded) r.ArrivalDate = d;   // align {Date} placeholder with the chosen date
                 rows = uploaded;
-                ViewBag.Uploaded   = true;
+                ViewBag.Uploaded = true;
                 ViewBag.UploadFile = HttpContext.Session.GetString(RecipFileKey) ?? "uploaded file";
             }
             else
@@ -71,7 +71,8 @@ namespace ShippingManagement.Web.Controllers
         [HttpPost, ValidateAntiForgeryToken]
         public IActionResult Send(DateTime date, string? country, string category,
                                   string subject, string body, bool regularOnly = false, bool htmlBody = false,
-                                  string? profile = null)
+                                  string? profile = null,
+                                  List<string>? to = null, List<string>? cc = null, List<string>? bcc = null)
         {
             if (!EmailService.Categories.Contains(category)) category = "General";
 
@@ -81,21 +82,79 @@ namespace ShippingManagement.Web.Controllers
             if (uploaded is not null) foreach (var r in rows) r.ArrivalDate = date;
 
             var messages = new List<EmailMessage>();
-            foreach (var a in rows)
+
+            if (uploaded is not null)
             {
-                var addr = EmailService.CategoryAddress(a, category);
-                if (string.IsNullOrWhiteSpace(addr)) continue;   // skip rows with no address for this category
-                messages.Add(new EmailMessage
+                // Uploaded-document flow (per requirement):
+                //   To  = Confirm Email   CC = Call Sign   BCC = Generated Email
+                // The Recipients table is editable, so apply any inline edits (parallel
+                // arrays, one entry per row in table order) and persist them to the session
+                // so they survive a validation redirect and the actual send.
+                if (to is not null && to.Count == rows.Count)
                 {
-                    Category   = category,
-                    ToAddress  = addr,
-                    Subject    = Fill(subject, a),
-                    Body       = Fill(body, a),
-                    IsHtml     = htmlBody,
-                    IMO_Number = a.IMO_Number,
-                    VesselName = a.VesselName,
-                    CompanyName = a.CompanyName
-                });
+                    for (int i = 0; i < rows.Count; i++)
+                    {
+                        rows[i].ConfirmEmail = NullIfEmpty(to[i]?.Trim());
+                        if (cc is not null && cc.Count == rows.Count) rows[i].CallSign = NullIfEmpty(cc[i]?.Trim());
+                        if (bcc is not null && bcc.Count == rows.Count) rows[i].GenerateEmail = NullIfEmpty(bcc[i]?.Trim());
+                    }
+                    HttpContext.Session.SetString(RecipKey, JsonSerializer.Serialize(rows));
+                }
+
+                // Confirm Email is mandatory — if ANY recipient is missing it, stop the
+                // whole send and tell the user which vessels to fix.
+                var missing = rows
+                    .Where(a => string.IsNullOrWhiteSpace(a.ConfirmEmail))
+                    .ToList();
+
+                if (missing.Count > 0)
+                {
+                    var names = string.Join(", ", missing
+                        .Select(a => string.IsNullOrWhiteSpace(a.VesselName) ? "(unnamed vessel)" : a.VesselName)
+                        .Take(10));
+                    if (missing.Count > 10) names += ", …";
+                    TempData["Error"] =
+                        $"Cannot send: {missing.Count} uploaded recipient(s) have no Confirm Email " +
+                        $"(used as the \u201CTo\u201D address). No emails were sent. Fix and re-upload: {names}";
+                    return RedirectToAction(nameof(Index), new { date, country, category, regularOnly });
+                }
+
+                foreach (var a in rows)
+                {
+                    messages.Add(new EmailMessage
+                    {
+                        Category = category,
+                        ToAddress = a.ConfirmEmail,    // To  = Confirm Email
+                        CcAddress = a.CallSign,        // CC  = Call Sign   (see note in Index view)
+                        BccAddress = a.GenerateEmail,   // BCC = Generated Email
+                        Subject = Fill(subject, a),
+                        Body = Fill(body, a),
+                        IsHtml = htmlBody,
+                        IMO_Number = a.IMO_Number,
+                        VesselName = a.VesselName,
+                        CompanyName = a.CompanyName
+                    });
+                }
+            }
+            else
+            {
+                // Database-arrivals flow — unchanged: one address per row for the chosen category.
+                foreach (var a in rows)
+                {
+                    var addr = EmailService.CategoryAddress(a, category);
+                    if (string.IsNullOrWhiteSpace(addr)) continue;   // skip rows with no address for this category
+                    messages.Add(new EmailMessage
+                    {
+                        Category = category,
+                        ToAddress = addr,
+                        Subject = Fill(subject, a),
+                        Body = Fill(body, a),
+                        IsHtml = htmlBody,
+                        IMO_Number = a.IMO_Number,
+                        VesselName = a.VesselName,
+                        CompanyName = a.CompanyName
+                    });
+                }
             }
 
             if (messages.Count == 0)
@@ -247,8 +306,8 @@ namespace ShippingManagement.Web.Controllers
                 string? Field(string key) =>
                     colMap.TryGetValue(key, out var col) && cells.TryGetValue(col, out var v) ? Clean(v) : null;
 
-                var vessel  = Field("VesselName");
-                var imo     = Field("IMO");
+                var vessel = Field("VesselName");
+                var imo = Field("IMO");
                 var confirm = Field("ConfirmEmail");
                 var company = Field("CompanyName");
 
@@ -259,21 +318,21 @@ namespace ShippingManagement.Web.Controllers
 
                 list.Add(new ArrivalLog
                 {
-                    VesselName     = vessel,
-                    IMO_Number     = imo,
-                    CallSign       = Field("CallSign"),
-                    VesselType     = Field("VesselType"),
-                    ConfirmEmail   = confirm,
-                    PurchaseEmail  = Field("PurchaseEmail"),
-                    CateringEmail  = Field("CateringEmail"),
-                    GenerateEmail  = Field("GenerateEmail"),
-                    GeneralEmail   = Field("GeneralEmail"),
-                    CompanyName    = company,
+                    VesselName = vessel,
+                    IMO_Number = imo,
+                    CallSign = Field("CallSign"),
+                    VesselType = Field("VesselType"),
+                    ConfirmEmail = confirm,
+                    PurchaseEmail = Field("PurchaseEmail"),
+                    CateringEmail = Field("CateringEmail"),
+                    GenerateEmail = Field("GenerateEmail"),
+                    GeneralEmail = Field("GeneralEmail"),
+                    CompanyName = company,
                     CompanyAddress = Field("CompanyAddress"),
-                    Telephone      = Field("Telephone"),
-                    PortName       = "",          // not present in the sheet
-                    Country        = "",
-                    ArrivalDate    = DateTime.Today
+                    Telephone = Field("Telephone"),
+                    PortName = "",          // not present in the sheet
+                    Country = "",
+                    ArrivalDate = DateTime.Today
                 });
             }
 
@@ -400,15 +459,15 @@ namespace ShippingManagement.Web.Controllers
             var t = new EmailTemplate
             {
                 TemplateID = templateId,
-                Name       = name.Trim(),
-                Category   = cat,
-                Subject    = subject,
-                Body       = body,
-                IsHtml     = isHtml
+                Name = name.Trim(),
+                Category = cat,
+                Subject = subject,
+                Body = body,
+                IsHtml = isHtml
             };
 
             if (templateId > 0) { _repo.UpdateEmailTemplate(t); TempData["Ok"] = $"Template \"{t.Name}\" updated."; }
-            else                { _repo.AddEmailTemplate(t);    TempData["Ok"] = $"Template \"{t.Name}\" added."; }
+            else { _repo.AddEmailTemplate(t); TempData["Ok"] = $"Template \"{t.Name}\" added."; }
 
             return RedirectToAction(nameof(Index));
         }

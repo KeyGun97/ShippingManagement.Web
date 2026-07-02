@@ -290,6 +290,11 @@ namespace ShippingManagement.Web.Services
                 FileName = python,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
+                // The Python scrapers emit UTF-8 (they reconfigure their streams),
+                // so decode their output as UTF-8 rather than the OS default code
+                // page — otherwise symbols/accents in captured logs become mojibake.
+                StandardOutputEncoding = System.Text.Encoding.UTF8,
+                StandardErrorEncoding = System.Text.Encoding.UTF8,
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 WorkingDirectory = Path.GetDirectoryName(script)!
