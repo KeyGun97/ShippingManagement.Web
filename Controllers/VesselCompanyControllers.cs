@@ -84,7 +84,9 @@ namespace ShippingManagement.Web.Controllers
                 return RedirectToAction(nameof(Register), new { imo = vessel.IMO_Number, returnUrl });
             }
             vessel.IMO_Number = vessel.IMO_Number.Trim();
-            vessel.GenerateEmail = "master." + vessel.VesselName + "@amosconnect.com\nmaster@" + vessel.VesselName + ".amosconnect.com\n" + vessel.VesselName + "@skyfile.com\nmaster." + vessel.VesselName + "@fleetmail.inmarsat.com\n" + vessel.VesselName + "@gtmailplus.com\n" + vessel.VesselName + "@speedmailplus.com\n" + vessel.VesselName + "@shipmail.net\n" + vessel.VesselName + "@ctmail.1749.cn\n" + vessel.VesselName + "@gtships.com\naquavita.mint@gtships.com\n" + vessel.VesselName + "@infinitymail.eu\n" + vessel.VesselName + "@om-email.net";
+            string trimVesssel= vessel.VesselName.Replace(" ", "");
+            string Vesseldotedname = vessel.VesselName.Replace(" ", ".");
+            vessel.GenerateEmail = "master." + trimVesssel + "@amosconnect.com\nmaster@" + trimVesssel + ".amosconnect.com\n" + trimVesssel + "@skyfile.com\nmaster." + trimVesssel + "@fleetmail.inmarsat.com\n" + trimVesssel + "@gtmailplus.com\n" + trimVesssel + "@speedmailplus.com\n" + trimVesssel + "@shipmail.net\n" + trimVesssel + "@ctmail.1749.cn\n" + Vesseldotedname + "@gtships.com\n" + trimVesssel + "@gtships.com\n" + trimVesssel + "@infinitymail.eu\n" + trimVesssel + "@om-email.net";
             _repo.SaveVessel(vessel);
             TempData["Ok"] = $"Vessel '{vessel.VesselName}' (IMO {vessel.IMO_Number}) saved.";
             // Came from Import Data (or anywhere else that passed returnUrl) → go back there.

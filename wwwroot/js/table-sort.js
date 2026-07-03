@@ -10,6 +10,13 @@
    different header still works normally and takes over as the active
    sort until the table reloads again.
 
+   A sort the user chooses by clicking a header is remembered (per tab,
+   in sessionStorage) and restored when they navigate away and come back
+   to the same page — e.g. sorting Import Data, clicking an IMO to
+   register a vessel, then returning keeps the sort they had picked. The
+   automatic vessel-name default is NOT remembered, so a table the user
+   never sorted just falls back to that default on each load.
+
    A header is NON-sortable (skipped, no pointer/arrows) when:
      • it carries [data-nosort], OR
      • it is auto-detected as an action/checkbox column — i.e. its
@@ -81,6 +88,55 @@
         });
     }
 
+    /* The bottom row of the thead holds the actual data-column headers. */
+    function headerCells(table) {
+        var thead = table.tHead;
+        if (!thead || !thead.rows.length) return [];
+        return Array.prototype.slice.call(thead.rows[thead.rows.length - 1].cells);
+    }
+
+    /* The column the table is currently sorted by (the th carrying data-dir), if any. */
+    function getActiveSort(table) {
+        var cells = headerCells(table);
+        for (var i = 0; i < cells.length; i++) {
+            var d = cells[i].getAttribute('data-dir');
+            if (d === 'asc' || d === 'desc') return { th: cells[i], idx: i, dir: d };
+        }
+        return null;
+    }
+
+    /* ---- Persisted sort (survives navigating away and back within the same tab) ----
+       The user's chosen sort for a table is remembered in sessionStorage so that, for
+       example, sorting the Import Data grid, clicking an IMO to register a vessel, and
+       returning restores the exact same sort. Keyed by page path + the table's header
+       signature (independent of query string, so it holds across date/country changes).
+       Only user clicks are stored — the automatic vessel-name default is not, so a table
+       the user never touched simply falls back to that default each load. */
+    var STORE_PREFIX = 'shipmgmt:tblsort:';
+
+    function storageKey(table) {
+        var sig = headerCells(table).map(function (th) {
+            return (th.innerText || th.textContent || '').trim();
+        }).join('|');
+        var path = (typeof location !== 'undefined' && location.pathname) ? location.pathname : '';
+        return STORE_PREFIX + path + '::' + sig;
+    }
+
+    function saveSort(table, headerText, dir) {
+        try { sessionStorage.setItem(storageKey(table), JSON.stringify({ col: headerText, dir: dir })); }
+        catch (e) { /* storage disabled / unavailable — persistence is a nice-to-have, ignore */ }
+    }
+
+    function loadSort(table) {
+        try {
+            var raw = sessionStorage.getItem(storageKey(table));
+            if (!raw) return null;
+            var o = JSON.parse(raw);
+            if (o && typeof o.col === 'string' && (o.dir === 'asc' || o.dir === 'desc')) return o;
+        } catch (e) { /* ignore parse/storage errors */ }
+        return null;
+    }
+
     /* Decide whether a column is "action-like" and should be auto-skipped. */
     function isActionColumn(th, table, colIdx) {
         var txt = (th.innerText || th.textContent || '').trim().toLowerCase();
@@ -134,34 +190,34 @@
             return dir === 'asc' ? c : -c;
         });
 
-        var frag = document.createDocumentFragment();
+        var frag = (table.ownerDocument || document).createDocumentFragment();
         sortable.concat(spanning).forEach(function (r) { frag.appendChild(r); });
         tbody.appendChild(frag);
     }
 
-    /* Keeps a table's Vessel Name column pinned to ascending order whenever rows are
-       added/removed after the fact (e.g. an AJAX action that injects/drops rows without a
-       full page reload) — but only while that column is still the active sort, so a
-       manual click on a different header is respected instead of being fought.
-       Disconnects itself while performing its own reorder so that reorder doesn't
-       re-trigger the callback (mutation records are delivered as a microtask, so a
-       simple synchronous "busy" flag would not prevent that self-triggered loop). */
-    function watchVesselColumn(table, th, idx) {
+    /* After any structural row change that happens without a full page reload (e.g. an AJAX
+       action that injects or drops rows), re-apply whatever sort is currently active so the
+       table never falls out of order. Disconnects itself during its own reorder so that
+       reorder doesn't re-trigger the callback (mutation records arrive as a microtask, so a
+       plain synchronous "busy" flag would not prevent that self-triggered loop). */
+    function watchTable(table) {
         var tbody = table.tBodies[0];
         if (!tbody || typeof MutationObserver === 'undefined') return;
         var mo = new MutationObserver(function (mutations) {
-            var structuralChange = mutations.some(function (m) { return m.type === 'childList'; });
-            if (!structuralChange) return;
-            if (th.getAttribute('data-dir') !== 'asc') return;   // user sorted by another column — leave it
+            if (!mutations.some(function (m) { return m.type === 'childList'; })) return;
+            var active = getActiveSort(table);
+            if (!active) return;
             mo.disconnect();
-            performSort(table, th, idx, 'asc');
+            performSort(table, active.th, active.idx, active.dir);
             mo.observe(tbody, { childList: true });
         });
         mo.observe(tbody, { childList: true });
     }
 
-    /* Mark sortable headers (for styling), auto-tag action columns as nosort, and default
-       any table that has a Vessel Name column to ascending order by that column. */
+    /* Mark sortable headers (for styling) and auto-tag action columns as nosort. Then apply
+       the initial order: a sort the user previously chose for this table (restored from
+       sessionStorage) takes priority; otherwise, if the table has a Vessel Name column,
+       default to ascending by that column. */
     function initTable(table) {
         if (!table.classList.contains('table') || table.dataset.sortInit) return;
         table.dataset.sortInit = '1';
@@ -176,10 +232,22 @@
             if (!th.hasAttribute('title')) th.setAttribute('title', 'Click to sort');
             if (vesselTh === null && isVesselNameHeader(th)) { vesselTh = th; vesselIdx = i; }
         });
-        if (vesselTh !== null) {
-            performSort(table, vesselTh, vesselIdx, 'asc');
-            watchVesselColumn(table, vesselTh, vesselIdx);
+
+        var applied = false;
+        var saved = loadSort(table);
+        if (saved) {
+            var cells = headerRow.cells;
+            for (var k = 0; k < cells.length; k++) {
+                if (cells[k].hasAttribute('data-nosort')) continue;
+                var txt = (cells[k].innerText || cells[k].textContent || '').trim();
+                if (txt === saved.col) { performSort(table, cells[k], k, saved.dir); applied = true; break; }
+            }
         }
+        if (!applied && vesselTh !== null) {
+            performSort(table, vesselTh, vesselIdx, 'asc');
+            applied = true;
+        }
+        if (applied) watchTable(table);   // keep the active sort after later AJAX row changes
     }
 
     function initAll(root) {
@@ -192,6 +260,8 @@
         var idx = Array.prototype.indexOf.call(th.parentNode.children, th);
         var dir = th.getAttribute('data-dir') === 'asc' ? 'desc' : 'asc';
         performSort(table, th, idx, dir);
+        // Remember this choice so it's restored after navigating away and back (same tab).
+        saveSort(table, (th.innerText || th.textContent || '').trim(), dir);
     }
 
     document.addEventListener('click', function (e) {
