@@ -168,9 +168,9 @@ namespace ShippingManagement.Web.Services
                 if (DateTime.TryParse(r.ArrivalDate, out DateTime date))
                 {
                     bool isWithinLast10Days =
-                    Convert.ToDateTime(r.ArrivalDate).Date >= importDate.AddDays(-10) &&
-                    Convert.ToDateTime(r.ArrivalDate).Date <= importDate;
-                    if (isWithinLast10Days)
+                    Convert.ToDateTime(r.ArrivalDate).Date >= Convert.ToDateTime(importDate.AddDays(-10)).Date &&
+                    Convert.ToDateTime(r.ArrivalDate).Date <= Convert.ToDateTime(importDate).Date;
+                    if (!isWithinLast10Days || Convert.ToDateTime(r.ArrivalDate).Date == Convert.ToDateTime(importDate).Date)
                     {
                         records.Add(new ScrapedRecord
                         {

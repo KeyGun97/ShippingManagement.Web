@@ -141,31 +141,84 @@ def log(msg: str):
 
 async def dismiss_cookie_banner(page: Page):
     """
-    Dismisses the 'Cookie preferences' consent modal that can appear on any
-    page load (login page or a port page). Clicks 'Reject' since we don't
-    need advertising/tracking cookies for scraping — only functional access.
-    Non-fatal if it's not present.
+    Dismisses the cookie-consent overlay (seen live as <div id="cc-overlay"
+    class="cc-overlay">) that sits on top of the page and intercepts ALL
+    pointer events — it blocked the Log-in button click for a full 30s in
+    production. Strategy, in order:
+      1. Click a decline/accept button by common texts (inside the overlay
+         first, then anywhere on the page).
+      2. If no button dismisses it, REMOVE the overlay + its known containers
+         from the DOM via JS — guaranteed unblock; we don't need tracking
+         cookies for scraping, only functional access.
+    Non-fatal if no banner is present.
     """
-    try:
-        reject_btn = page.locator('button:has-text("Reject")').first
-        await reject_btn.wait_for(state="visible", timeout=3000)
-        await reject_btn.click()
-        await page.wait_for_timeout(300)
-        log("   (dismissed cookie-preferences banner)")
-        return
-    except Exception:
-        pass
+    overlay = page.locator("#cc-overlay")
 
-    # Fallback: if for some reason "Reject" isn't there but "Accept All" is,
-    # accept rather than get stuck behind the modal.
+    async def overlay_gone() -> bool:
+        try:
+            return (await overlay.count()) == 0 or not await overlay.first.is_visible()
+        except Exception:
+            return True
+
+    # Nothing visible? (also covers pages where the banner never appears)
+    if await overlay_gone():
+        # Still try the old text-based buttons briefly — some pages show a
+        # banner variant without the #cc-overlay id.
+        for text in ("Reject", "Decline", "Accept All", "Accept all", "Accept"):
+            try:
+                btn = page.locator(f'button:has-text("{text}")').first
+                await btn.wait_for(state="visible", timeout=1000)
+                await btn.click()
+                await page.wait_for_timeout(300)
+                log(f"   (dismissed cookie banner via '{text}')")
+                return
+            except Exception:
+                continue
+        return
+
+    log("   (cookie overlay #cc-overlay detected — dismissing...)")
+
+    # 1) Try clicking real consent buttons, preferring ones INSIDE the overlay.
+    button_texts = ("Reject", "Decline", "Deny", "Only necessary",
+                    "Accept All", "Accept all", "Accept", "OK", "Agree", "Save")
+    scopes = (overlay, page.locator("body"))
+    for scope in scopes:
+        for text in button_texts:
+            try:
+                btn = scope.locator(f'button:has-text("{text}"), a:has-text("{text}")').first
+                if await btn.count() and await btn.is_visible():
+                    await btn.click(timeout=2000)
+                    await page.wait_for_timeout(400)
+                    if await overlay_gone():
+                        log(f"   (cookie overlay dismissed via '{text}' button)")
+                        return
+            except Exception:
+                continue
+
+    # 2) Last resort: strip the overlay (and typical companion containers) out
+    #    of the DOM so it can't intercept pointer events. Functional cookies /
+    #    login are unaffected — this only removes the consent UI.
     try:
-        accept_btn = page.locator('button:has-text("Accept All")').first
-        await accept_btn.wait_for(state="visible", timeout=1500)
-        await accept_btn.click()
-        await page.wait_for_timeout(300)
-        log("   (cookie banner: 'Reject' not found, clicked 'Accept All' instead)")
-    except Exception:
-        pass  # no banner present -- nothing to do
+        await page.evaluate(
+            """() => {
+                for (const sel of ['#cc-overlay', '.cc-overlay', '#cc-banner',
+                                   '.cc-banner', '#cc-window', '.cc-window',
+                                   '[class*="cookie-consent"]', '[id*="cookie-consent"]']) {
+                    document.querySelectorAll(sel).forEach(el => el.remove());
+                }
+                // Consent libs often freeze scrolling while the modal is up.
+                document.documentElement.style.overflow = '';
+                document.body.style.overflow = '';
+            }"""
+        )
+        await page.wait_for_timeout(200)
+        if await overlay_gone():
+            log("   (cookie overlay removed from DOM — no dismissable button matched)")
+            return
+    except Exception as e:
+        log(f"   ⚠ could not remove cookie overlay via JS: {e}")
+
+    log("   ⚠ cookie overlay may still be present — clicks will use JS fallback")
 
 
 async def _goto_with_retries(page: Page, url: str, *, attempts: int = 2,
@@ -250,9 +303,22 @@ async def login(page: Page):
         )
     await password_field.fill(VT_PASSWORD)
 
+    # The consent overlay can (re)appear between page load and this click, so
+    # dismiss again right before submitting.
+    await dismiss_cookie_banner(page)
+
     submit_btn = await _first_visible(page, submit_selectors, timeout=5000)
     if submit_btn:
-        await submit_btn.click()
+        try:
+            # Short timeout: if something still intercepts pointer events we
+            # don't want to burn 30s — fall through to a JS click instead.
+            await submit_btn.click(timeout=5000)
+        except Exception:
+            log("   ⚠ normal click blocked (overlay?) — using JS click fallback")
+            try:
+                await submit_btn.evaluate("el => el.click()")   # bypasses hit-testing
+            except Exception:
+                await password_field.press("Enter")
     else:
         # Fall back to pressing Enter in the password field.
         await password_field.press("Enter")
