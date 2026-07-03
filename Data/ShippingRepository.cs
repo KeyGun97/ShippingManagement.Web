@@ -122,6 +122,25 @@ namespace ShippingManagement.Web.Data
             c.Execute(sql, v);
         }
 
+        public void DeleteVessel(string imo)
+        {
+            // ArrivalLog has a FK on Vessels(IMO_Number) with no cascade, so its rows
+            // for this IMO must go first or the vessel delete fails. We remove the
+            // vessel together with its arrival-history log, and un-match any scraped
+            // rows for that IMO (SaveVessel sets IsMatched=1; deleting flips it back
+            // to 0 so the record can be re-registered later). XACT_ABORT + a wrapping
+            // transaction make the whole thing atomic — all or nothing.
+            const string sql = @"
+                SET XACT_ABORT ON;
+                BEGIN TRAN;
+                    DELETE FROM ArrivalLog WHERE IMO_Number = @imo;
+                    DELETE FROM Vessels    WHERE IMO_Number = @imo;
+                    UPDATE ScrapedData SET IsMatched = 0 WHERE IMO_Number = @imo;
+                COMMIT;";
+            using var c = Conn();
+            c.Execute(sql, new { imo });
+        }
+
         public string? LookupIMOByVesselName(string name)
         {
             using var c = Conn();

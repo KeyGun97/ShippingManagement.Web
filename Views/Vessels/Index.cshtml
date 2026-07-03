@@ -1,5 +1,7 @@
 @model List<Vessel>
-@{ ViewData["Title"] = "Vessels"; }
+@{
+    ViewData["Title"] = "Vessels";
+}
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h3><i class="bi bi-water me-2"></i>Vessel Registration</h3>
     <div>
@@ -30,28 +32,36 @@
         <input type="hidden" name="companyId" id="companyIdFilter" value="@ViewBag.CompanyId" />
         <datalist id="companyFilterList">
             @foreach (Company c in ViewBag.Companies)
-            { <option data-id="@c.CompanyID" value="@c.CompanyName"></option> }
+            {
+                <option data-id="@c.CompanyID" value="@c.CompanyName"></option>
+            }
         </datalist>
     </div>
     <div class="col-md-2">
         <select name="typeId" class="form-select">
             <option value="">All Types</option>
             @foreach (VesselType t in ViewBag.Types)
-            { <option value="@t.TypeID" selected="@(ViewBag.TypeId == t.TypeID)">@t.TypeName</option> }
+            {
+                <option value="@t.TypeID" selected="@(ViewBag.TypeId == t.TypeID)">@t.TypeName</option>
+            }
         </select>
     </div>
     <div class="col-md-2">
         <select name="country" class="form-select">
             <option value="">All Countries</option>
             @foreach (CountryItem c in ViewBag.Countries)
-            { <option selected="@(ViewBag.Country == c.CountryName)">@c.CountryName</option> }
+            {
+                <option selected="@(ViewBag.Country == c.CountryName)">@c.CountryName</option>
+            }
         </select>
     </div>
     <div class="col-md-2">
         <select name="port" class="form-select">
             <option value="">All Ports</option>
             @foreach (string p in (List<string>)ViewBag.Ports)
-            { <option selected="@(ViewBag.Port == p)">@p</option> }
+            {
+                <option selected="@(ViewBag.Port == p)">@p</option>
+            }
         </select>
     </div>
     <div class="col-md-2 form-check d-flex align-items-center ps-4">
@@ -61,58 +71,99 @@
     <div class="col-md-1"><button class="btn btn-primary w-100">Search</button></div>
 </form>
 
-<div class="card shadow-sm"><div class="card-body table-responsive">
-<table class="table table-sm table-hover">
-    <thead><tr>
-        <th>S.No</th><th>Vessel Name</th><th>IMO #</th><th>Type</th><th>Call Sign</th>
-        <th>Company</th><th>Port</th><th>Country</th><th>Terms</th><th>Status</th><th></th>
-    </tr></thead>
-    <tbody>
-    @{ int i = 1; }
-    @foreach (var v in Model)
-    {
-        <tr class="@(v.CustomerStatus == "Regular" ? "regular-customer" : "")">
-            <td>@(i++)</td>
-            <td>@v.VesselName</td>
-            <td>@v.IMO_Number</td>
-            <td>@v.VesselType</td>
-            <td>@v.CallSign</td>
-            <td>@v.CompanyName @(v.CustomerStatus == "Regular" ? Html.Raw("<i class='bi bi-star-fill text-primary'></i>") : Html.Raw(""))</td>
-            <td>@v.Port</td>
-            <td>@v.Country</td>
-            <td>@v.Terms</td>
-            <td><span class="badge bg-secondary">@v.Status</span></td>
-            <td class="text-nowrap">
-                <a class="btn btn-sm btn-outline-primary" asp-action="Register" asp-route-imo="@v.IMO_Number"><i class="bi bi-pencil"></i></a>
-                <a class="btn btn-sm btn-outline-secondary" asp-controller="MasterData" asp-action="History" asp-route-imo="@v.IMO_Number" title="IMO history"><i class="bi bi-clock-history"></i></a>
-            </td>
-        </tr>
-    }
-    @if (!Model.Any()) { <tr><td colspan="11" class="text-center text-muted py-3">No vessels found.</td></tr> }
-    </tbody>
-</table>
-</div></div>
+<div class="card shadow-sm">
+    <div class="card-body table-responsive">
+        <table class="table table-sm table-hover">
+            <thead>
+                <tr>
+                    <th>S.No</th>
+                    <th>Vessel Name</th>
+                    <th>IMO #</th>
+                    <th>Type</th>
+                    <th>Call Sign</th>
+                    <th>Company</th>
+                    <th>Port</th>
+                    <th>Country</th>
+                    <th>Terms</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @{
+                    int i = 1;
+                }
+                @foreach (var v in Model)
+                {
+                    <tr class="@(v.CustomerStatus == "Regular" ? "regular-customer" : "")">
+                        <td>@(i++)</td>
+                        <td>@v.VesselName</td>
+                        <td>@v.IMO_Number</td>
+                        <td>@v.VesselType</td>
+                        <td>@v.CallSign</td>
+                        <td>@v.CompanyName @(v.CustomerStatus == "Regular" ? Html.Raw("<i class='bi bi-star-fill text-primary'></i>") : Html.Raw(""))</td>
+                        <td>@v.Port</td>
+                        <td>@v.Country</td>
+                        <td>@v.Terms</td>
+                        <td><span class="badge bg-secondary">@v.Status</span></td>
+                        <td class="text-nowrap">
+                            <a class="btn btn-sm btn-outline-primary" asp-action="Register" asp-route-imo="@v.IMO_Number"><i class="bi bi-pencil"></i></a>
+                            <a class="btn btn-sm btn-outline-secondary" asp-controller="MasterData" asp-action="History" asp-route-imo="@v.IMO_Number" title="IMO history"><i class="bi bi-clock-history"></i></a>
+                            <form asp-action="Delete" method="post" class="d-inline js-delete-vessel"
+                                  data-name="@v.VesselName" data-imo="@v.IMO_Number">
+                                <input type="hidden" name="imo" value="@v.IMO_Number" />
+                                <input type="hidden" name="q" value="@ViewBag.Q" />
+                                <input type="hidden" name="companyId" value="@ViewBag.CompanyId" />
+                                <input type="hidden" name="typeId" value="@ViewBag.TypeId" />
+                                <input type="hidden" name="country" value="@ViewBag.Country" />
+                                <input type="hidden" name="regularOnly" value="@ViewBag.RegularOnly" />
+                                <input type="hidden" name="port" value="@ViewBag.Port" />
+                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete vessel"><i class="bi bi-trash"></i></button>
+                            </form>
+                        </td>
+                    </tr>
+                }
+                @if (!Model.Any())
+                {
+                    <tr><td colspan="11" class="text-center text-muted py-3">No vessels found.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
 <p class="text-muted small mt-2"><span class="badge" style="background:#cfe2ff;color:#000">blue rows</span> = vessels of Regular Customers.</p>
 
 @section Scripts {
-<script>
-// Keep the hidden companyId in sync with the company-name text box.
-// (Server also resolves name → id, so filtering still works if JS is off.)
-(function () {
-    var nameBox = document.getElementById("companyNameFilter");
-    var idBox   = document.getElementById("companyIdFilter");
-    var list    = document.getElementById("companyFilterList");
-    if (!nameBox || !idBox || !list) return;
+    <script>
+        // Keep the hidden companyId in sync with the company-name text box.
+        // (Server also resolves name → id, so filtering still works if JS is off.)
+        (function () {
+            var nameBox = document.getElementById("companyNameFilter");
+            var idBox   = document.getElementById("companyIdFilter");
+            var list    = document.getElementById("companyFilterList");
+            if (!nameBox || !idBox || !list) return;
 
-    function syncId() {
-        var typed = nameBox.value.trim().toLowerCase();
-        var match = Array.prototype.find.call(list.options, function (o) {
-            return o.value.trim().toLowerCase() === typed;
+            function syncId() {
+                var typed = nameBox.value.trim().toLowerCase();
+                var match = Array.prototype.find.call(list.options, function (o) {
+                    return o.value.trim().toLowerCase() === typed;
+                });
+                idBox.value = match ? (match.getAttribute("data-id") || "") : "";
+            }
+            nameBox.addEventListener("input", syncId);
+            nameBox.addEventListener("change", syncId);
+        })();
+
+        // Confirm before deleting a vessel. Reads the name/IMO from data-* attributes
+        // (HTML-encoded by Razor) so names containing quotes can't break this script.
+        document.querySelectorAll("form.js-delete-vessel").forEach(function (f) {
+            f.addEventListener("submit", function (e) {
+                var name = f.getAttribute("data-name") || "this vessel";
+                var imo = f.getAttribute("data-imo") || "";
+                var msg = "Delete vessel " + name + (imo ? " (IMO " + imo + ")" : "") +
+                          "?\nThis cannot be undone.";
+                if (!confirm(msg)) { e.preventDefault(); }
+            });
         });
-        idBox.value = match ? (match.getAttribute("data-id") || "") : "";
-    }
-    nameBox.addEventListener("input", syncId);
-    nameBox.addEventListener("change", syncId);
-})();
-</script>
+    </script>
 }

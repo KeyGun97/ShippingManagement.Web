@@ -84,7 +84,7 @@ namespace ShippingManagement.Web.Controllers
                 return RedirectToAction(nameof(Register), new { imo = vessel.IMO_Number, returnUrl });
             }
             vessel.IMO_Number = vessel.IMO_Number.Trim();
-            string trimVesssel= vessel.VesselName.Replace(" ", "");
+            string trimVesssel = vessel.VesselName.Replace(" ", "");
             string Vesseldotedname = vessel.VesselName.Replace(" ", ".");
             vessel.GenerateEmail = "master." + trimVesssel + "@amosconnect.com\nmaster@" + trimVesssel + ".amosconnect.com\n" + trimVesssel + "@skyfile.com\nmaster." + trimVesssel + "@fleetmail.inmarsat.com\n" + trimVesssel + "@gtmailplus.com\n" + trimVesssel + "@speedmailplus.com\n" + trimVesssel + "@shipmail.net\n" + trimVesssel + "@ctmail.1749.cn\n" + Vesseldotedname + "@gtships.com\n" + trimVesssel + "@gtships.com\n" + trimVesssel + "@infinitymail.eu\n" + trimVesssel + "@om-email.net";
             _repo.SaveVessel(vessel);
@@ -93,6 +93,40 @@ namespace ShippingManagement.Web.Controllers
             if (Url.IsLocalUrl(returnUrl))
                 return Redirect(returnUrl!);
             return RedirectToAction(nameof(Index), new { q = vessel.IMO_Number });
+        }
+
+        [HttpPost, ValidateAntiForgeryToken]
+        public IActionResult Delete(string imo, string? q = null, int? companyId = null,
+                                    int? typeId = null, string? country = null,
+                                    bool regularOnly = false, string? port = null)
+        {
+            if (string.IsNullOrWhiteSpace(imo))
+            {
+                TempData["Error"] = "No vessel specified to delete.";
+                return RedirectToAction(nameof(Index), new { q, companyId, typeId, country, regularOnly, port });
+            }
+
+            var vessel = _repo.GetVesselByIMO(imo.Trim());
+            if (vessel is null)
+            {
+                TempData["Error"] = $"Vessel with IMO {imo} was not found (already deleted?).";
+            }
+            else
+            {
+                try
+                {
+                    _repo.DeleteVessel(imo.Trim());
+                    TempData["Ok"] = $"Vessel '{vessel.VesselName}' (IMO {vessel.IMO_Number}) deleted.";
+                }
+                catch (Exception ex)
+                {
+                    // e.g. a FK constraint referencing this vessel — show a friendly
+                    // message instead of a 500.
+                    TempData["Error"] = $"Could not delete vessel '{vessel.VesselName}': {ex.Message}";
+                }
+            }
+            // Return to the same filtered list the user was viewing.
+            return RedirectToAction(nameof(Index), new { q, companyId, typeId, country, regularOnly, port });
         }
 
         /// <summary>AJAX: IMO + Tab → fetch existing vessel data (V2 workflow).</summary>
