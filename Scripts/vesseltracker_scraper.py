@@ -37,8 +37,24 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from dotenv import load_dotenv
-from playwright.async_api import async_playwright, Page, TimeoutError as PWTimeout
+# python-dotenv is optional (credentials are set below / via real env vars);
+# don't let a missing convenience package kill the whole scraper.
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv(*_args, **_kwargs):
+        return False
+
+# Playwright is REQUIRED — but fail with an actionable message instead of a
+# bare traceback if it isn't installed on this machine.
+try:
+    from playwright.async_api import async_playwright, Page, TimeoutError as PWTimeout
+except ImportError:
+    print("FATAL: the 'playwright' package is not installed on this machine.\n"
+          "Run these two commands, then retry:\n"
+          "    pip install python-dotenv playwright\n"
+          "    python -m playwright install chromium", file=sys.stderr)
+    sys.exit(1)
 
 # ── Make the residual stderr output UTF-8 safe ────────────────────────────
 # Progress logging now goes to a .log file (see below), but the fatal-error
@@ -121,11 +137,22 @@ DEFAULT_WORKERS = int(os.environ.get("VT_WORKERS", "4") or 4)
 # Angular SPA that can be slow to respond, so this is generous — and navigations
 # are also retried (see _goto_with_retries). Precedence: --nav-timeout= > config
 # "navTimeoutMs" > this default (resolved in main()).
-NAV_TIMEOUT_MS = 45_000
+NAV_TIMEOUT_MS = 90_000
 NAV_RETRIES = 3                 # attempts for the login navigation
-GRID_STABLE_CHECKS = 3          # consecutive equal row-counts before we trust the grid is loaded
+GRID_STABLE_CHECKS = 5          # WAIT+ was 3 — require 5 consecutive equal row-counts
+                                # (~3s of a stable table) before trusting it's fully loaded,
+                                # so a half-rendered grid can't pass as "ready"
 GRID_STABLE_INTERVAL_S = 0.6
-GRID_MAX_WAIT_S = 20
+GRID_MAX_WAIT_S = 90            # WAIT+ was 60 — ceiling for waiting on a slow table
+
+# WAIT+ Fixed delay after opening each port page, giving the slow site time to
+# render before we start polling the grid (was a hardcoded 800ms). Overridable
+# per run with "pageSettleMs" in the config JSON — no code edit needed to tune.
+PAGE_SETTLE_MS = 5_000
+
+# WAIT+ How long to wait for a hash-route change to actually swap the grid
+# content (was ~8s). The site can take a while to re-render between ports.
+SPA_SWAP_WAIT_S = 20
 
 EXPECTED_HEADERS = ["name", "country", "type", "eta", "received via", "owner", "operator", "manager"]
 
@@ -164,7 +191,7 @@ async def dismiss_cookie_banner(page: Page):
     if await overlay_gone():
         # Still try the old text-based buttons briefly — some pages show a
         # banner variant without the #cc-overlay id.
-        for text in ("Reject", "Decline", "Accept All", "Accept all", "Accept"):
+        for text in ("Got it", "Reject", "Decline", "Accept All", "Accept all", "Accept"):
             try:
                 btn = page.locator(f'button:has-text("{text}")').first
                 await btn.wait_for(state="visible", timeout=1000)
@@ -179,7 +206,7 @@ async def dismiss_cookie_banner(page: Page):
     log("   (cookie overlay #cc-overlay detected — dismissing...)")
 
     # 1) Try clicking real consent buttons, preferring ones INSIDE the overlay.
-    button_texts = ("Reject", "Decline", "Deny", "Only necessary",
+    button_texts = ("Got it", "Reject", "Decline", "Deny", "Only necessary",
                     "Accept All", "Accept all", "Accept", "OK", "Agree", "Save")
     scopes = (overlay, page.locator("body"))
     for scope in scopes:
@@ -259,7 +286,8 @@ async def login(page: Page):
         )
 
     # Give the Angular app a moment to render the login form (or redirect to it).
-    await page.wait_for_timeout(1500)
+    # WAIT+ was 1500ms.
+    await page.wait_for_timeout(3000)
     await dismiss_cookie_banner(page)
 
     # Try a series of plausible selectors for the email/username field.
@@ -334,7 +362,9 @@ async def login(page: Page):
     except PWTimeout:
         pass
 
-    await page.wait_for_timeout(2000)
+    # WAIT+ was 2000ms — give the cockpit shell longer to finish booting after
+    # auth, so the first port each tab visits isn't racing a half-loaded SPA.
+    await page.wait_for_timeout(4000)
 
     if "login" in page.url.lower() or "auth" in page.url.lower():
         await _dump_debug(page, "login_failed")
@@ -422,12 +452,13 @@ async def _row_count(page: Page) -> int:
     return 0
 
 
-async def wait_for_grid_ready(page: Page):
+async def wait_for_grid_ready(page: Page, max_wait_s: float | None = None):
     """Poll row count until it stabilizes for GRID_STABLE_CHECKS consecutive reads."""
     stable = 0
     last = -1
     elapsed = 0.0
-    while elapsed < GRID_MAX_WAIT_S:
+    max_wait_s = max_wait_s or GRID_MAX_WAIT_S
+    while elapsed < max_wait_s:
         n = await _row_count(page)
         if n == last and n > 0:
             stable += 1
@@ -439,6 +470,62 @@ async def wait_for_grid_ready(page: Page):
         await asyncio.sleep(GRID_STABLE_INTERVAL_S)
         elapsed += GRID_STABLE_INTERVAL_S
     return last  # give up and use whatever we last saw (may be 0 -> empty port)
+
+
+async def _grid_fingerprint(page: Page) -> str:
+    """Cheap fingerprint of the currently rendered grid (row count + first row
+    text). Used to detect when an Angular hash-route change has actually swapped
+    the table content — otherwise we can scrape the PREVIOUS view's rows."""
+    try:
+        return await page.evaluate(
+            """() => {
+                const rows = document.querySelectorAll(
+                    "table tbody tr, [role='row'], .ag-row, .grid-row");
+                const first = rows.length ? rows[0].innerText.slice(0, 120) : "";
+                return rows.length + '|' + first;
+            }"""
+        )
+    except Exception:
+        return ""
+
+
+async def _navigate_spa(page: Page, url: str, label: str) -> bool:
+    """
+    Navigate to a cockpit port URL, handling the Angular hash-routing pitfall:
+    URLs that differ only in the '#/...' fragment trigger a SAME-DOCUMENT
+    navigation, so page.goto() returns immediately while the old view's grid is
+    still in the DOM. In that case we wait for the grid content to actually
+    change before declaring the navigation done.
+    """
+    before = await _grid_fingerprint(page)
+
+    # First port this tab visits? Hop through about:blank so the port URL gets
+    # a FULL document load (Angular boots directly at the port route) instead
+    # of a same-document hash hop from the just-logged-in cockpit dashboard —
+    # the classic "first port comes back empty" race.
+    if not getattr(page, "_vt_navigated", False):
+        try:
+            await page.goto("about:blank")
+        except Exception:
+            pass
+        try:
+            page._vt_navigated = True   # plain attribute on the Page object
+        except Exception:
+            pass
+
+    if not await _goto_with_retries(page, url, attempts=2, label=label):
+        return False
+
+    # Same-document (hash-only) navigation? Give the router time to swap the
+    # view: poll until the grid fingerprint changes. WAIT+ was ~8s, now up to
+    # SPA_SWAP_WAIT_S. A genuinely identical grid (rare) just costs the wait,
+    # nothing breaks.
+    if "#" in url and before:
+        for _ in range(int(SPA_SWAP_WAIT_S * 2)):
+            await page.wait_for_timeout(500)
+            if await _grid_fingerprint(page) != before:
+                break
+    return True
 
 
 # --------------------------------------------------------------------------
@@ -576,19 +663,79 @@ async def scrape_port(page: Page, source: dict, max_days: int):
     url = source["url"]
 
     #log(f"→ {port_name}, {country} ...")
-    if not await _goto_with_retries(page, url, attempts=2, label=port_name):
+    if not await _navigate_spa(page, url, label=port_name):
         log(f"   ✗ Timed out loading {port_name}")
         return []
 
-    await page.wait_for_timeout(800)  # let Angular route settle
+    # WAIT+ was 800ms; PAGE_SETTLE_MS (config "pageSettleMs") gives the slow
+    # site a proper chance to render before the grid is polled.
+    await page.wait_for_timeout(PAGE_SETTLE_MS)
     await dismiss_cookie_banner(page)
 
-    try:
-        vessels = await extract_table(page)
-    except Exception as e:
-        await _dump_debug(page, f"extract_error_{source['sourceId']}")
-        log(f"   ✗ Extraction error: {e}")
-        return []
+    vessels = []
+    for attempt in (1, 2):
+        try:
+            vessels = await extract_table(page)
+        except Exception as e:
+            await _dump_debug(page, f"extract_error_{source['sourceId']}")
+            log(f"   ✗ Extraction error ({port_name}, attempt {attempt}): {e}")
+            vessels = []
+
+        if vessels or attempt == 2:
+            break
+
+        # Dead port (Country/UN-Locode showing '-')? The reload retry can never
+        # help — the port ID in the URL is invalid or not covered by the
+        # account — so skip the retry instead of burning ~2.5 more minutes per
+        # bad source. The URL must be re-copied from the cockpit (search the
+        # port → Expected Vessels → copy the address bar).
+        try:
+            dead_port_early = await page.evaluate(
+                """() => /UN\\/Locode\\s*-/.test(
+                       (document.body.innerText || '').replace(/\\n/g, ' '))"""
+            )
+        except Exception:
+            dead_port_early = False
+        if dead_port_early:
+            log(f"   ✗ {port_name}: dead port detected on first pass — skipping retry. "
+                f"Fix this source URL: {url}")
+            break
+
+        # Zero vessels on the first pass is usually a COLD tab: right after
+        # login the Angular SPA is still bootstrapping, so the port view
+        # renders empty/stale and extraction finds nothing. (This is exactly
+        # why the first workers×N ports of a run — or ALL ports when only one
+        # VesselTracker source is configured — used to come back empty while
+        # MyShipTracking worked fine.) A full reload boots the SPA directly at
+        # the port route, guaranteeing a fresh grid; then wait longer.
+        log(f"   ⚠ 0 rows for {port_name} — cold SPA suspected, reloading once...")
+        try:
+            await page.reload(wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
+        except Exception as e:
+            log(f"   ⚠ reload failed for {port_name}: {e}")
+            break
+        # WAIT+ was 1200ms; retry pass also gets a 1.5x grid-wait ceiling.
+        await page.wait_for_timeout(PAGE_SETTLE_MS)
+        await dismiss_cookie_banner(page)
+        await wait_for_grid_ready(page, max_wait_s=GRID_MAX_WAIT_S * 1.5)
+
+    if not vessels:
+        # Distinguish "the port page never loaded its data" (Country/UN-Locode
+        # show '-') from a genuinely empty-but-valid port. The former means the
+        # port ID in the source URL is invalid or not covered by the account —
+        # no amount of waiting fixes it; the URL must be re-copied from the
+        # cockpit (search the port → Expected Vessels → copy address bar).
+        try:
+            dead_port = await page.evaluate(
+                """() => /UN\\/Locode\\s*-/.test(
+                       (document.body.innerText || '').replace(/\\n/g, ' '))"""
+            )
+        except Exception:
+            dead_port = False
+        if dead_port:
+            log(f"   ✗ {port_name}: port page loaded EMPTY (UN/Locode '-') — "
+                f"invalid port ID or no account coverage. Fix this source URL: {url}")
+        await _dump_debug(page, f"empty_port_{source['sourceId']}")
 
     records = []
     skipped_old = 0
@@ -655,15 +802,16 @@ async def main():
         log(f"--limit={LIMIT} set: only scraping the first {LIMIT} port(s).")
 
     # Resolve the navigation timeout: --nav-timeout= wins, else config
-    # "navTimeoutMs", else the module default.
-    global NAV_TIMEOUT_MS
+    # "navTimeoutMs", else the module default. WAIT+ pageSettleMs is also
+    # config-overridable the same way.
+    global NAV_TIMEOUT_MS, PAGE_SETTLE_MS
     NAV_TIMEOUT_MS = _CLI_NAV_TIMEOUT or int(config.get("navTimeoutMs", NAV_TIMEOUT_MS) or NAV_TIMEOUT_MS)
+    PAGE_SETTLE_MS = int(config.get("pageSettleMs", PAGE_SETTLE_MS) or PAGE_SETTLE_MS)
 
-    # Concurrency: all workers share ONE logged-in context (single login); each
-    # drives its own tab. This is the main speed lever vs. the old one-at-a-time
-    # loop that was timing out on large port lists.
-    workers = WORKERS or int(config.get("maxWorkers", DEFAULT_WORKERS) or DEFAULT_WORKERS)
-    workers = max(1, min(workers, len(sources)))
+    # Concurrency: FIXED at ONE tab — ports are scraped strictly one at a time
+    # in a single browser window/tab (config "maxWorkers" and --workers= are
+    # intentionally ignored so nothing can raise this again).
+    workers = 1
 
     log(f"Loaded {len(sources)} ports from config (maxDays={max_days}).")
     log(f"Running {'HEADLESS' if HEADLESS else 'HEADED (visible browser)'} "
@@ -672,8 +820,34 @@ async def main():
     all_records: list = []
 
     async with async_playwright() as pw:
-        browser = await pw.chromium.launch(headless=HEADLESS)
-        context = await browser.new_context()
+        try:
+            browser = await pw.chromium.launch(headless=HEADLESS)
+        except Exception as e:
+            # Most common on a NEW machine: the pip package is installed but the
+            # browser binary isn't. Surface an actionable message instead of a
+            # cryptic "Executable doesn't exist" — this is the #1 reason the
+            # VesselTracker side returns nothing while MyShipTracking (Selenium
+            # + system Chrome) still works.
+            raise RuntimeError(
+                "Could not launch Chromium for Playwright. On this machine run:\n"
+                "    pip install playwright\n"
+                "    python -m playwright install chromium\n"
+                f"Original error: {e}"
+            ) from e
+        # Headless Chromium advertises itself ("HeadlessChrome" in the user
+        # agent + navigator.webdriver=true), and cockpit-style sites often
+        # reject such logins — which shows up as a login failure ONLY on
+        # machines that run via the web app (always --headless) while a headed
+        # test run works. Mask both signals.
+        context = await browser.new_context(
+            user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/126.0.0.0 Safari/537.36"),
+            viewport={"width": 1366, "height": 768},
+        )
+        await context.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+        )
         login_page = await context.new_page()
 
         try:
@@ -703,6 +877,12 @@ async def main():
     OUTPUT_PATH.write_text(json.dumps(all_records, indent=2, ensure_ascii=False), encoding="utf-8")
     log(f"Done. {len(all_records)} vessel record(s) total.")
     log(f"Results written to {OUTPUT_PATH}")
+    if not all_records:
+        # Exit 0 (login DID work, ports were just empty/failed) but leave a
+        # trace on stderr so the web app's banner isn't silently green.
+        print(f"WARNING: VesselTracker run finished with 0 records for "
+              f"{len(sources)} source(s). See {LOG_PATH} and the debug folder.",
+              file=sys.stderr)
 
 
 if __name__ == "__main__":
@@ -714,8 +894,12 @@ if __name__ == "__main__":
             # Windows Python 3.8+, but we force it explicitly (via Runner, so we
             # don't touch the event-loop *policy* API that's deprecated in 3.14)
             # in case something set a non-default policy.
-            with asyncio.Runner(loop_factory=asyncio.ProactorEventLoop) as runner:
-                runner.run(main())
+            if hasattr(asyncio, "Runner"):          # Python 3.11+
+                with asyncio.Runner(loop_factory=asyncio.ProactorEventLoop) as runner:
+                    runner.run(main())
+            else:                                    # Python 3.8 – 3.10 fallback
+                asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+                asyncio.run(main())
         else:
             asyncio.run(main())
     except Exception as e:

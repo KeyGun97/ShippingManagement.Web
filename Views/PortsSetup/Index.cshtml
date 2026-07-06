@@ -86,8 +86,10 @@
                                 <td>@(p.AssignedUserName ?? "—")</td>
                                 <td>
                                     <a class="btn btn-sm btn-outline-info py-0" asp-action="Sources" asp-route-portId="@p.PortID">Sources</a>
-                                    <button class="btn btn-sm btn-outline-primary py-0"
-                                            onclick="editPort(@p.PortID, @p.CountryID, '@Html.Raw(System.Text.Json.JsonSerializer.Serialize(p.PortName))'.slice(1,-1), @p.MaxPages, '@Html.Raw(System.Text.Json.JsonSerializer.Serialize(p.Notes ?? ""))'.slice(1,-1))">Edit</button>
+                                    <button type="button" class="btn btn-sm btn-outline-primary py-0 js-edit-port"
+                                            data-id="@p.PortID" data-country="@p.CountryID"
+                                            data-name="@p.PortName" data-max="@p.MaxPages"
+                                            data-notes="@(p.Notes ?? "")">Edit</button>
                                     <form asp-action="DeletePort" method="post" class="d-inline" onsubmit="return confirm('Delete port @p.PortName and its sources?');">
                                         @Html.AntiForgeryToken()
                                         <input type="hidden" name="id" value="@p.PortID" />
@@ -107,11 +109,15 @@
 
 @section Scripts {
 <script>
-    function editPort(id, countryId, name, maxPages, notes) {
-        $('#p_id').val(id); $('#p_country').val(countryId); $('#p_name').val(name);
-        $('#p_max').val(maxPages); $('#p_notes').val(notes);
+    // Edit values come from data-* attributes (Razor HTML-encodes them safely).
+    // The old inline-onclick approach broke because JsonSerializer emitted raw
+    // double quotes inside onclick="...", terminating the attribute early.
+    $(document).on('click', '.js-edit-port', function () {
+        var d = this.dataset;
+        $('#p_id').val(d.id); $('#p_country').val(d.country); $('#p_name').val(d.name);
+        $('#p_max').val(d.max); $('#p_notes').val(d.notes || '');
         $('html,body').animate({ scrollTop: $('#portForm').offset().top - 80 }, 200);
-    }
+    });
     function resetPortForm() { $('#p_id').val(0); $('#p_name,#p_notes').val(''); $('#p_max').val(50); }
 </script>
 }

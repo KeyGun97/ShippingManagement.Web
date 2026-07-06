@@ -47,13 +47,13 @@ namespace ShippingManagement.Web.Services
             // VesselTracker logs in and visits every port, so it's inherently slower
             // than the paginated MyShipTracking scrape — give it its own budget.
             int vtTimeoutMin = int.TryParse(_cfg["Scraper:VesselTrackerTimeoutMinutes"], out var vtt) && vtt > 0
-                               ? vtt : Math.Max(timeoutMin, 20);
+                               ? vtt : Math.Max(timeoutMin, 60);
 
             // Concurrency per site. MyShipTracking opens one browser process per
             // worker (heavier); VesselTracker shares one browser and opens a tab per
             // worker (lighter), so it defaults lower.
             int mstWorkers = int.TryParse(_cfg["Scraper:MaxWorkers"], out var mw) && mw > 0 ? mw : 8;
-            int vtWorkers = int.TryParse(_cfg["Scraper:VesselTrackerWorkers"], out var vw) && vw > 0 ? vw : 4;
+            int vtWorkers = int.TryParse(_cfg["Scraper:VesselTrackerWorkers"], out var vw) && vw > 0 ? vw : 2;
 
             // ── Everything lives in a fixed folder inside the project (NOT temp), with
             //    fixed filenames so each run overwrites the previous one. Configurable
@@ -211,8 +211,27 @@ namespace ShippingManagement.Web.Services
             }
 
             _repo.InsertScrapedRows(records);   // useless IMOs auto-flagged on insert
+
+            // ── Per-site outcome summary. Previously a site's failure was ONLY
+            //    reported when BOTH sites returned nothing, so "MyShipTracking OK
+            //    + VesselTracker crashed" looked like a clean success and the VT
+            //    error was invisible. Now every run reports each site's result.
+            var siteBits = new List<string>();
+            foreach (var run in outcomes)
+            {
+                if (!run.Ok)
+                    siteBits.Add($"{run.Site} FAILED: {Truncate(run.Error, 250)}");
+                else if (run.Rows.Count == 0)
+                    siteBits.Add($"{run.Site}: 0 rows — check ScraperData\\output_" +
+                                 (run.Site == "VesselTracker" ? "vesseltracker" : "myshiptracking") +
+                                 ".log and the ScraperData\\debug folder");
+                else
+                    siteBits.Add($"{run.Site}: {run.Rows.Count} rows");
+            }
+            string siteSummary = siteBits.Count > 0 ? $" [{string.Join(" | ", siteBits)}]" : "";
+
             return new(true,
-                $"Scrapping completed Now " +
+                $"Scrapping completed.{siteSummary} Now " +
                 "Run Auto Data to distribute them to users.", records.Count, sources.Count);
         }
 
