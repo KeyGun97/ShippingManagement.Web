@@ -293,9 +293,51 @@ class MyShipTrackingScraper(BaseScraper):
         pattern = source.get("pageParamPattern")
         return [self._page_url(url, pattern, p) for p in range(start, end + 1)]
 
+    @staticmethod
+    def _norm_name(s: str) -> str:
+        """Accent- and case-insensitive normalisation ('Itaguaí' == 'itaguai')."""
+        import unicodedata
+        s = unicodedata.normalize("NFKD", s or "")
+        s = "".join(ch for ch in s if not unicodedata.combining(ch))
+        return re.sub(r"\s+", " ", s).strip().casefold()
+
+    @classmethod
+    def url_matches_port(cls, source: dict) -> tuple:
+        """
+        (ok, url_destination). MyShipTracking source URLs encode the port in
+        their 'destination=' query parameter, so a URL whose destination names
+        a DIFFERENT port than source['portName'] would stamp every scraped
+        vessel with the wrong port. Sources with no destination parameter are
+        allowed through (nothing to verify against).
+        """
+        from urllib.parse import urlparse, parse_qs
+        try:
+            qs = parse_qs(urlparse(source.get("url", "")).query)
+            dest = (qs.get("destination", [""])[0] or "").strip()
+        except Exception:
+            return True, None
+        if not dest:
+            return True, None
+        return cls._norm_name(dest) == cls._norm_name(source.get("portName", "")), dest
+
     def scrape(self, source: dict) -> list:
         rows_out = []
         name = source.get("sourceName", "MyShipTracking")
+
+        # ── Identity gate ─────────────────────────────────────────────
+        # Refuse to scrape a source whose URL contradicts its portName —
+        # every row would be imported under the wrong port. Fix the URL in
+        # Ports Setup -> Sources (destination= must be this port's name).
+        ok, dest = self.url_matches_port(source)
+        if not ok:
+            logger.error(
+                "%s: SKIPPED — port/URL mismatch: portName is '%s' but the "
+                "source URL's destination is '%s'. Fix this URL in Ports "
+                "Setup -> Sources so scraped vessels aren't mapped to the "
+                "wrong port. URL: %s",
+                name, source.get("portName"), dest, source.get("url"))
+            return rows_out
+
         urls = self.build_page_urls(source)
         logger.info("%s (%s) myshiptracking: %d page URL(s) to scrape (pages %s..%s).",
                     name, source.get('portName'), len(urls),

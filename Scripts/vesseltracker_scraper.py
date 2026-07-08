@@ -499,19 +499,17 @@ async def _navigate_spa(page: Page, url: str, label: str) -> bool:
     """
     before = await _grid_fingerprint(page)
 
-    # First port this tab visits? Hop through about:blank so the port URL gets
-    # a FULL document load (Angular boots directly at the port route) instead
-    # of a same-document hash hop from the just-logged-in cockpit dashboard —
-    # the classic "first port comes back empty" race.
-    if not getattr(page, "_vt_navigated", False):
-        try:
-            await page.goto("about:blank")
-        except Exception:
-            pass
-        try:
-            page._vt_navigated = True   # plain attribute on the Page object
-        except Exception:
-            pass
+    # EVERY port navigation hops through about:blank so the port URL gets a
+    # FULL document load (Angular boots directly at the port route) instead of
+    # a same-document hash hop from the PREVIOUS port's view. Hash hops return
+    # immediately with the old port's grid still in the DOM, and if the swap
+    # outlasts SPA_SWAP_WAIT_S the old port's vessels get scraped under the
+    # NEW port's name — the "wrong PortName mapping" bug. A full load costs a
+    # few seconds per port but guarantees the grid belongs to THIS port.
+    try:
+        await page.goto("about:blank")
+    except Exception:
+        pass
 
     if not await _goto_with_retries(page, url, attempts=2, label=label):
         return False
@@ -526,6 +524,58 @@ async def _navigate_spa(page: Page, url: str, label: str) -> bool:
             if await _grid_fingerprint(page) != before:
                 break
     return True
+
+
+# --------------------------------------------------------------------------
+# Port identity verification — a row is NEVER stamped with a port the page
+# doesn't actually show. Belt-and-braces on top of the full-load navigation.
+# --------------------------------------------------------------------------
+
+def _norm_name(s: str) -> str:
+    """Accent- and case-insensitive normalisation ('Itaguaí' == 'itaguai')."""
+    import unicodedata
+    s = unicodedata.normalize("NFKD", s or "")
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    return re.sub(r"\s+", " ", s).strip().casefold()
+
+
+def _expected_port_route(url: str) -> str | None:
+    """The 'portDetails/<id>' segment this source is supposed to land on."""
+    m = re.search(r"portDetails/\d+", url or "")
+    return m.group(0) if m else None
+
+
+async def _port_identity_ok(page: Page, source: dict,
+                            max_wait_s: float = 15.0) -> bool:
+    """
+    True only when the rendered page provably belongs to this source's port:
+      1. page.url still contains this source's portDetails/<id> route, AND
+      2. the configured portName appears in the page text (the cockpit
+         sidebar shows the port's name once its data has loaded).
+    Polls up to max_wait_s so a slow sidebar isn't misread as a mismatch.
+    """
+    route = _expected_port_route(source.get("url", ""))
+    want = _norm_name(source.get("portName", ""))
+    if not want:
+        return True                      # nothing to verify against
+
+    elapsed = 0.0
+    while True:
+        try:
+            if route and route not in (page.url or ""):
+                ok = False               # tab was redirected elsewhere
+            else:
+                body = await page.evaluate(
+                    "() => (document.body && document.body.innerText) || ''")
+                ok = want in _norm_name(body)
+        except Exception:
+            ok = False
+        if ok:
+            return True
+        if elapsed >= max_wait_s:
+            return False
+        await page.wait_for_timeout(1000)
+        elapsed += 1.0
 
 
 # --------------------------------------------------------------------------
@@ -671,6 +721,29 @@ async def scrape_port(page: Page, source: dict, max_days: int):
     # site a proper chance to render before the grid is polled.
     await page.wait_for_timeout(PAGE_SETTLE_MS)
     await dismiss_cookie_banner(page)
+
+    # ── Identity gate ─────────────────────────────────────────────────
+    # Before touching the grid, prove the rendered page IS this port:
+    # correct portDetails/<id> route + the configured portName visible on
+    # the page. If not, one full reload (boots Angular at the port route),
+    # then re-check; still wrong -> SKIP with a loud log rather than stamp
+    # another port's vessels with this portName.
+    if not await _port_identity_ok(page, source):
+        log(f"   ⚠ {port_name}: page does not show this port yet — reloading once...")
+        try:
+            await page.reload(wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
+            await page.wait_for_timeout(PAGE_SETTLE_MS)
+            await dismiss_cookie_banner(page)
+        except Exception as e:
+            log(f"   ⚠ reload failed for {port_name}: {e}")
+        if not await _port_identity_ok(page, source):
+            await _dump_debug(page, f"identity_mismatch_{source['sourceId']}")
+            log(f"   ✗ {port_name}: SKIPPED — rendered page never matched this "
+                f"port (expected '{port_name}' on {_expected_port_route(url)}). "
+                f"Check that this source URL really is {port_name}'s Expected "
+                f"Vessels page. No rows imported for it this run, so nothing "
+                f"gets mapped to the wrong port.")
+            return []
 
     vessels = []
     for attempt in (1, 2):

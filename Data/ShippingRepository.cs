@@ -306,7 +306,7 @@ namespace ShippingManagement.Web.Data
         {
             const string sql = @"
                 IF EXISTS (SELECT 1 FROM PortSources WHERE SourceID=@SourceID AND @SourceID > 0)
-                    UPDATE PortSources SET SourceName=@SourceName, Url=@Url, PageParamPattern=@PageParamPattern,
+                    UPDATE PortSources SET PortID=@PortID, SourceName=@SourceName, Url=@Url, PageParamPattern=@PageParamPattern,
                         StartPage=@StartPage, EndPage=@EndPage, IsActive=@IsActive
                     WHERE SourceID=@SourceID
                 ELSE
