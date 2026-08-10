@@ -17,6 +17,26 @@ namespace ShippingManagement.Web.Data
 
         private IDbConnection Conn() => new SqlConnection(_cs);
 
+        /* ── Tiny in-process TTL cache for lookup lists ─────────────────
+           The repository is registered as a singleton, so this cache is
+           shared by every request. Lookup tables (types, countries, ports,
+           company names) change rarely but were being re-queried on every
+           page load. Short TTL + explicit invalidation on writes. */
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime Expires, object Value)> _cache = new();
+
+        private T Cached<T>(string key, TimeSpan ttl, Func<T> factory)
+        {
+            if (_cache.TryGetValue(key, out var hit) && hit.Expires > DateTime.UtcNow)
+                return (T)hit.Value;
+            var value = factory()!;
+            _cache[key] = (DateTime.UtcNow.Add(ttl), value);
+            return value;
+        }
+        private void Invalidate(params string[] keys)
+        {
+            foreach (var k in keys) _cache.TryRemove(k, out _);
+        }
+
         /* ── Users / Auth ──────────────────────────────────────────────── */
         public User? GetUserByUsername(string username)
         {
@@ -92,6 +112,77 @@ namespace ShippingManagement.Web.Data
             });
         }
 
+        /// <summary>
+        /// Paged vessel search for the grid. Unlike SearchVessels (kept for
+        /// exports), this (a) pages with OFFSET/FETCH so only one screen of
+        /// rows travels over the wire, and (b) selects ONLY the columns the
+        /// grid shows — the six NVARCHAR(400) email columns plus Address
+        /// were roughly 80% of the old payload and the grid never displays them.
+        /// </summary>
+        public (List<Vessel> Rows, int Total) SearchVesselsPaged(
+            string? term, int? companyId = null, string? country = null,
+            int? typeId = null, bool regularOnly = false, string? port = null,
+            int page = 1, int pageSize = 50)
+        {
+            if (page < 1) page = 1;
+            if (pageSize < 1 || pageSize > 500) pageSize = 50;
+
+            const string where = @"
+                WHERE (@term IS NULL OR v.VesselName LIKE @like OR v.IMO_Number LIKE @like)
+                  AND (@companyId IS NULL OR v.CompanyID = @companyId)
+                  AND (@country IS NULL OR v.Country = @country OR v.Port LIKE '%'+@country+'%')
+                  AND (@typeId IS NULL OR v.VesselTypeID = @typeId)
+                  AND (@port IS NULL OR v.Port = @port)
+                  AND (@regOnly = 0 OR c.Status = 'Regular')";
+
+            const string sql = @"
+                SELECT v.IMO_Number, v.VesselName, v.VesselTypeID, v.CallSign,
+                       v.CompanyID, v.Port, v.Country, v.Terms, v.Status,
+                       vt.TypeName AS VesselType, c.CompanyName, c.Status AS CustomerStatus
+                FROM Vessels v
+                LEFT JOIN VesselTypes vt ON vt.TypeID = v.VesselTypeID
+                LEFT JOIN Companies  c ON c.CompanyID = v.CompanyID"
+                + where + @"
+                ORDER BY v.VesselName
+                OFFSET (@page-1)*@pageSize ROWS FETCH NEXT @pageSize ROWS ONLY;
+
+                SELECT COUNT(*)
+                FROM Vessels v
+                LEFT JOIN Companies c ON c.CompanyID = v.CompanyID"
+                + where + ";";
+
+            using var c = Conn();
+            using var multi = c.QueryMultiple(sql, new
+            {
+                term,
+                like = $"%{term}%",
+                companyId,
+                country,
+                typeId,
+                port,
+                regOnly = regularOnly ? 1 : 0,
+                page,
+                pageSize
+            });
+            var rows = multi.Read<Vessel>().ToList();
+            var total = multi.ReadSingle<int>();
+            return (rows, total);
+        }
+
+        /// <summary>
+        /// Lightweight (CompanyID, CompanyName) list for filter datalists.
+        /// The vessel page previously queried vw_CompanyFleet (a GROUP BY
+        /// join over the whole Vessels table) on EVERY load just to fill a
+        /// dropdown. Cached for 60s and invalidated when a company is saved.
+        /// </summary>
+        public IReadOnlyList<Company> GetCompanyNameList() =>
+            Cached("companyNames", TimeSpan.FromSeconds(60), () =>
+            {
+                using var c = Conn();
+                return (IReadOnlyList<Company>)c.Query<Company>(
+                    "SELECT CompanyID, CompanyName FROM Companies ORDER BY CompanyName").ToList();
+            });
+
         public void SaveVessel(Vessel v)
         {
             const string sql = @"
@@ -151,27 +242,83 @@ namespace ShippingManagement.Web.Data
         /* ── Companies ─────────────────────────────────────────────────── */
         public IEnumerable<Company> GetAllCompanies(string? term = null, bool regularOnly = false)
         {
+            // Kept for exports (which legitimately need every row). Rewritten off
+            // vw_CompanyFleet so the fleet count is a per-row seek instead of a
+            // GROUP BY over the entire Vessels table before filtering.
             const string sql = @"
-                SELECT * FROM vw_CompanyFleet
-                WHERE (@term IS NULL OR CompanyName LIKE @like)
-                  AND (@regOnly = 0 OR Status='Regular')
-                ORDER BY CompanyName";
+                SELECT c.CompanyID, c.CompanyName, c.Address, c.Country, c.GeneralEmail,
+                       c.Website, c.Telephone, c.Status,
+                       (SELECT COUNT(*) FROM Vessels v WHERE v.CompanyID = c.CompanyID) AS FleetCount
+                FROM Companies c
+                WHERE (@term IS NULL OR c.CompanyName LIKE @like)
+                  AND (@regOnly = 0 OR c.Status='Regular')
+                ORDER BY c.CompanyName";
             using var c = Conn();
             return c.Query<Company>(sql, new { term, like = $"%{term}%", regOnly = regularOnly ? 1 : 0 });
         }
 
+        /// <summary>
+        /// Paged company list for the grid. vw_CompanyFleet aggregates the WHOLE
+        /// Vessels table (GROUP BY over every row) before anything is filtered —
+        /// that cost grows with the vessel count, not the company count, which is
+        /// why the page slowed down. Here we page the Companies table FIRST, then
+        /// count the fleet only for the ~50 rows on screen (one index seek each
+        /// against IX_Vessels_Company).
+        /// </summary>
+        public (List<Company> Rows, int Total) GetCompaniesPaged(
+            string? term = null, bool regularOnly = false, int page = 1, int pageSize = 50)
+        {
+            if (page < 1) page = 1;
+            if (pageSize < 1 || pageSize > 500) pageSize = 50;
+
+            const string sql = @"
+                SELECT c.CompanyID, c.CompanyName, c.Address, c.Country, c.GeneralEmail,
+                       c.Website, c.Telephone, c.Status,
+                       (SELECT COUNT(*) FROM Vessels v WHERE v.CompanyID = c.CompanyID) AS FleetCount
+                FROM Companies c
+                WHERE (@term IS NULL OR c.CompanyName LIKE @like)
+                  AND (@regOnly = 0 OR c.Status = 'Regular')
+                ORDER BY c.CompanyName
+                OFFSET (@page-1)*@pageSize ROWS FETCH NEXT @pageSize ROWS ONLY;
+
+                SELECT COUNT(*)
+                FROM Companies c
+                WHERE (@term IS NULL OR c.CompanyName LIKE @like)
+                  AND (@regOnly = 0 OR c.Status = 'Regular');";
+
+            using var c = Conn();
+            using var multi = c.QueryMultiple(sql, new
+            {
+                term,
+                like = $"%{term}%",
+                regOnly = regularOnly ? 1 : 0,
+                page,
+                pageSize
+            });
+            var rows = multi.Read<Company>().ToList();
+            var total = multi.ReadSingle<int>();
+            return (rows, total);
+        }
+
+        // Single-company lookups: query the base table with a scalar sub-select
+        // instead of vw_CompanyFleet, so one company never triggers a GROUP BY
+        // over the entire Vessels table.
+        private const string OneCompanySql = @"
+            SELECT c.CompanyID, c.CompanyName, c.Address, c.Country, c.GeneralEmail,
+                   c.Website, c.Telephone, c.Status,
+                   (SELECT COUNT(*) FROM Vessels v WHERE v.CompanyID = c.CompanyID) AS FleetCount
+            FROM Companies c ";
+
         public Company? GetCompanyByID(int id)
         {
             using var c = Conn();
-            return c.QueryFirstOrDefault<Company>(
-                "SELECT * FROM vw_CompanyFleet WHERE CompanyID=@id", new { id });
+            return c.QueryFirstOrDefault<Company>(OneCompanySql + "WHERE c.CompanyID=@id", new { id });
         }
 
         public Company? GetCompanyByName(string name)
         {
             using var c = Conn();
-            return c.QueryFirstOrDefault<Company>(
-                "SELECT * FROM vw_CompanyFleet WHERE CompanyName=@name", new { name });
+            return c.QueryFirstOrDefault<Company>(OneCompanySql + "WHERE c.CompanyName=@name", new { name });
         }
 
         public int SaveCompany(Company co)
@@ -191,7 +338,43 @@ namespace ShippingManagement.Web.Data
                     SELECT CAST(SCOPE_IDENTITY() AS INT);
                 END";
             using var c = Conn();
-            return c.ExecuteScalar<int>(sql, co);
+            var id = c.ExecuteScalar<int>(sql, co);
+            Invalidate("companyNames");
+            return id;
+        }
+
+        /// <summary>How many vessels are still linked to this company (blocks a careless delete).</summary>
+        public int GetCompanyVesselCount(int companyId)
+        {
+            using var c = Conn();
+            return c.ExecuteScalar<int>(
+                "SELECT COUNT(*) FROM Vessels WHERE CompanyID=@companyId", new { companyId });
+        }
+
+        /// <summary>
+        /// Admin-only delete for a company added by mistake / no longer needed.
+        /// Vessels.CompanyID is a FK with no cascade, so a company that still owns
+        /// vessels cannot simply be removed. When <paramref name="unlinkVessels"/> is
+        /// true the fleet is detached first (CompanyID → NULL, the vessels themselves
+        /// are kept); otherwise the delete only succeeds for an empty company.
+        /// Returns the number of vessels that were unlinked.
+        /// </summary>
+        public int DeleteCompany(int companyId, bool unlinkVessels)
+        {
+            const string sql = @"
+                SET XACT_ABORT ON;
+                BEGIN TRAN;
+                    DECLARE @unlinked INT = 0;
+                    IF @unlink = 1
+                    BEGIN
+                        UPDATE Vessels SET CompanyID = NULL WHERE CompanyID = @companyId;
+                        SET @unlinked = @@ROWCOUNT;
+                    END
+                    DELETE FROM Companies WHERE CompanyID = @companyId;
+                COMMIT;
+                SELECT @unlinked;";
+            using var c = Conn();
+            return c.ExecuteScalar<int>(sql, new { companyId, unlink = unlinkVessels ? 1 : 0 });
         }
 
         public void SetCompanyStatus(int companyId, string status)
@@ -199,6 +382,44 @@ namespace ShippingManagement.Web.Data
             using var c = Conn();
             c.Execute("UPDATE Companies SET Status=@status WHERE CompanyID=@companyId",
                       new { status, companyId });
+        }
+
+        /// <summary>
+        /// Top N companies by fleet size (Import Data sidebar). Previously the
+        /// controller loaded EVERY company with its fleet count and sorted in
+        /// memory just to show 20 — now the database returns 20 rows.
+        /// </summary>
+        public IEnumerable<Company> GetTopCompaniesByFleet(int top = 20) =>
+            Cached($"topFleet{top}", TimeSpan.FromSeconds(60), () =>
+            {
+                using var c = Conn();
+                return c.Query<Company>(@"
+                    SELECT TOP (@top) c.CompanyID, c.CompanyName, c.Status,
+                           COUNT(v.IMO_Number) AS FleetCount
+                    FROM Companies c
+                    LEFT JOIN Vessels v ON v.CompanyID = c.CompanyID
+                    GROUP BY c.CompanyID, c.CompanyName, c.Status
+                    ORDER BY COUNT(v.IMO_Number) DESC, c.CompanyName", new { top }).ToList();
+            });
+
+        /// <summary>
+        /// All vessels belonging to Regular-status companies, in ONE query.
+        /// The Regular Customers page used to call GetVesselsByCompany() once
+        /// per company (classic N+1) — 200 regular customers meant 200 round
+        /// trips. Caller groups the result by CompanyID.
+        /// </summary>
+        public IEnumerable<Vessel> GetVesselsOfRegularCompanies()
+        {
+            const string sql = @"
+                SELECT v.IMO_Number, v.VesselName, v.VesselTypeID, v.CallSign,
+                       v.CompanyID, v.Port, v.Country, v.Terms, v.Status,
+                       vt.TypeName AS VesselType, c.CompanyName, c.Status AS CustomerStatus
+                FROM Vessels v
+                INNER JOIN Companies c ON c.CompanyID = v.CompanyID AND c.Status = 'Regular'
+                LEFT JOIN VesselTypes vt ON vt.TypeID = v.VesselTypeID
+                ORDER BY c.CompanyName, v.VesselName";
+            using var c = Conn();
+            return c.Query<Vessel>(sql);
         }
 
         public IEnumerable<Vessel> GetVesselsByCompany(int companyId)
@@ -214,15 +435,17 @@ namespace ShippingManagement.Web.Data
         }
 
         /* ── Vessel Types ──────────────────────────────────────────────── */
-        public IEnumerable<VesselType> GetVesselTypes()
-        {
-            using var c = Conn();
-            return c.Query<VesselType>("SELECT * FROM VesselTypes ORDER BY TypeName");
-        }
+        public IEnumerable<VesselType> GetVesselTypes() =>
+            Cached("vesselTypes", TimeSpan.FromSeconds(60), () =>
+            {
+                using var c = Conn();
+                return c.Query<VesselType>("SELECT * FROM VesselTypes ORDER BY TypeName").ToList();
+            });
         public void AddVesselType(string name)
         {
             using var c = Conn();
             c.Execute("IF NOT EXISTS (SELECT 1 FROM VesselTypes WHERE TypeName=@name) INSERT INTO VesselTypes (TypeName) VALUES (@name)", new { name });
+            Invalidate("vesselTypes");
         }
         public void DeleteVesselType(int id)
         {
@@ -231,15 +454,17 @@ namespace ShippingManagement.Web.Data
         }
 
         /* ── Countries / Ports / Sources (Ports Setup) ─────────────────── */
-        public IEnumerable<CountryItem> GetCountries()
-        {
-            using var c = Conn();
-            return c.Query<CountryItem>("SELECT * FROM Countries ORDER BY CountryName");
-        }
+        public IEnumerable<CountryItem> GetCountries() =>
+            Cached("countries", TimeSpan.FromSeconds(60), () =>
+            {
+                using var c = Conn();
+                return c.Query<CountryItem>("SELECT * FROM Countries ORDER BY CountryName").ToList();
+            });
         public void AddCountry(string name, bool isAsia)
         {
             using var c = Conn();
             c.Execute("IF NOT EXISTS (SELECT 1 FROM Countries WHERE CountryName=@name) INSERT INTO Countries (CountryName, IsAsia) VALUES (@name, @isAsia)", new { name, isAsia });
+            Invalidate("countries");
         }
 
         public IEnumerable<Port> GetPorts(int? countryId = null)
@@ -273,7 +498,9 @@ namespace ShippingManagement.Web.Data
                     SELECT CAST(SCOPE_IDENTITY() AS INT);
                 END";
             using var c = Conn();
-            return c.ExecuteScalar<int>(sql, p);
+            var id = c.ExecuteScalar<int>(sql, p);
+            Invalidate("portNames");
+            return id;
         }
         public void DeletePort(int id)
         {
@@ -343,7 +570,8 @@ namespace ShippingManagement.Web.Data
                                                          bool includeUseless = true)
         {
             const string sql = @"
-                SELECT s.*, u.FullName AS AssignedUserName, c.Status AS CustomerStatus
+                SELECT s.*, u.FullName AS AssignedUserName, c.Status AS CustomerStatus,
+                       c.CompanyName AS CompanyName, v.CompanyID AS VesselCompanyID
                 FROM ScrapedData s
                 LEFT JOIN Users u ON u.UserID = s.AssignedUserID
                 LEFT JOIN Vessels v ON v.IMO_Number = s.IMO_Number
@@ -443,59 +671,128 @@ namespace ShippingManagement.Web.Data
         }
 
         /// <summary>Saves filtered (non-useless, matched-or-not) rows into the date-wise ArrivalLog history.</summary>
-        public (int Saved, int Unregistered) SaveFilteredToArrivalLog(int userId, DateTime importDate, IEnumerable<int>? selectedIds = null)
+        /// <summary>
+        /// Saves the user's filtered rows into the date-wise ArrivalLog history.
+        /// A row is only allowed through when it carries BOTH mandatory pieces of
+        /// information — an IMO Number, and a registered vessel that is linked to a
+        /// Company. Everything else is counted and reported back so the Import Data
+        /// page can tell the user exactly what is missing instead of silently
+        /// dropping incomplete records.
+        /// </summary>
+        public (int Saved, int Duplicates, int Unregistered, int NoImo, int NoCompany) SaveFilteredToArrivalLog(
+            int userId, DateTime importDate, IEnumerable<int>? selectedIds = null)
         {
             var ids = selectedIds?.Distinct().ToArray() ?? Array.Empty<int>();
             bool bySelection = ids.Length > 0;
-            const string sql = @"
-                DECLARE @savedRows TABLE (ScrapeID INT);
+            // setting date to delete data which is older then 3 days from import date so that the scrappeddata should be empted time to time as its not nessaccary to store data in scrappeddata table
+            DateTime prevDate = importDate.AddDays(-3);
+            // ── Why a table-valued parameter and not "ScrapeID IN @ids" ──────────
+            // Dapper expands IN @ids into IN (@ids0, @ids1, … @idsN) — one SQL
+            // parameter per id. SQL Server caps a request at 2100 parameters, so a
+            // selection of ~2100+ rows threw:
+            //     "The incoming request has too many parameters."
+            // A TVP sends the ids as ONE parameter (a streamed rowset), so the
+            // selection size no longer matters — 2,000 or 200,000 behaves the same.
+            // It is also faster: the ids arrive as an indexed table the optimizer
+            // can seek and join against, instead of a giant OR-list it must expand.
+            //
+            // Requires the dbo.IntIdList type — run Database/Migration_IntIdList.sql once.
+            var idTable = new DataTable();
+            idTable.Columns.Add("Id", typeof(int));
 
-                 INSERT INTO @savedRows (ScrapeID)
-                SELECT s.ScrapeID
+            foreach (var id in ids) idTable.Rows.Add(id);
+
+            const string sql = @"
+                SET NOCOUNT ON;
+                SET XACT_ABORT ON;   -- any error rolls the whole thing back
+
+                BEGIN TRANSACTION;
+
+                DECLARE @savedRows TABLE (ScrapeID INT PRIMARY KEY);
+
+                -- The candidate set the user asked to save (selection, or their whole
+                -- assignment). IMO is normalised here ONCE: blank/whitespace becomes
+                -- NULL so a '' IMO can't be counted as both 'no IMO' and 'unregistered'
+                -- further down.
+                DECLARE @candidates TABLE (ScrapeID INT PRIMARY KEY, IMO_Number VARCHAR(15));
+                INSERT INTO @candidates (ScrapeID, IMO_Number)
+                SELECT s.ScrapeID, NULLIF(LTRIM(RTRIM(s.IMO_Number)), '')
                 FROM ScrapedData s
                 WHERE s.ImportDate = @importDate
                   AND s.IsUseless = 0
-                  AND s.IMO_Number IS NOT NULL
-                  -- ArrivalLog.IMO_Number has an FK to Vessels: only rows whose vessel
-                  -- is REGISTERED can be saved, otherwise the insert violates the FK.
-                  AND EXISTS (SELECT 1 FROM Vessels v WHERE v.IMO_Number = s.IMO_Number)
-                  AND ((@bySelection = 1 AND s.ScrapeID IN @ids)
+                  AND ((@bySelection = 1 AND EXISTS (SELECT 1 FROM @ids i WHERE i.Id = s.ScrapeID))
                     OR (@bySelection = 0 AND s.AssignedUserID = @userId));
 
-                -- count candidate rows skipped because their vessel isn't registered yet
-                DECLARE @unregistered INT = (
-                    SELECT COUNT(*)
-                    FROM ScrapedData s
-                    WHERE s.ImportDate = @importDate
-                      AND s.IsUseless = 0
-                      AND s.IMO_Number IS NOT NULL
-                      AND NOT EXISTS (SELECT 1 FROM Vessels v WHERE v.IMO_Number = s.IMO_Number)
-                      AND ((@bySelection = 1 AND s.ScrapeID IN @ids)
-                        OR (@bySelection = 0 AND s.AssignedUserID = @userId)));
+                INSERT INTO @savedRows (ScrapeID)
+                SELECT c.ScrapeID
+                FROM @candidates c
+                WHERE c.IMO_Number IS NOT NULL
+                  -- ArrivalLog.IMO_Number has an FK to Vessels: only rows whose vessel
+                  -- is REGISTERED can be saved, otherwise the insert violates the FK.
+                  AND EXISTS (SELECT 1 FROM Vessels v
+                              WHERE v.IMO_Number = c.IMO_Number
+                                AND v.CompanyID IS NOT NULL);
 
-                INSERT INTO ArrivalLog (IMO_Number, PortName, Country, ArrivalDate, IsTagged, EnteredBy)
+                -- Mandatory-field breakdown, so the UI can name what is missing.
+                -- noImo / unregistered / noCompany are mutually exclusive and, together
+                -- with @savedRows, account for every candidate. NOTE that the returned
+                -- Saved is the ArrivalLog INSERT count, which is lower than
+                -- COUNT(@savedRows) whenever a row was already in history — @duplicates
+                -- below measures exactly that gap, so a 2,000 - row batch reconciles:
+                -- candidates = Saved + Duplicates + NoImo + Unregistered + NoCompany
+                DECLARE @noImo INT = (
+                    SELECT COUNT(*) FROM @candidates c WHERE c.IMO_Number IS NULL);
+
+            DECLARE @unregistered INT = (
+                SELECT COUNT(*) FROM @candidates c
+                WHERE c.IMO_Number IS NOT NULL
+                      AND NOT EXISTS(SELECT 1 FROM Vessels v WHERE v.IMO_Number = c.IMO_Number));
+
+            DECLARE @noCompany INT = (
+                SELECT COUNT(*) FROM @candidates c
+                WHERE c.IMO_Number IS NOT NULL
+                      AND EXISTS(SELECT 1 FROM Vessels v
+                                  WHERE v.IMO_Number = c.IMO_Number AND v.CompanyID IS NULL));
+
+            INSERT INTO ArrivalLog(IMO_Number, PortName, Country, ArrivalDate, IsTagged, EnteredBy)
                 SELECT s.IMO_Number, s.PortName, s.Country, @importDate, 0, @userId
                 FROM ScrapedData s
                 JOIN @savedRows sr ON sr.ScrapeID = s.ScrapeID
-                WHERE NOT EXISTS (SELECT 1 FROM ArrivalLog al
+                WHERE NOT EXISTS(SELECT 1 FROM ArrivalLog al
                                   WHERE al.IMO_Number = s.IMO_Number
                                     AND al.ArrivalDate = @importDate
                                     AND al.PortName = s.PortName);
-                DECLARE @inserted INT = @@ROWCOUNT;
 
-                -- status change in ScrapedData: these vessels are now in master data history
-                UPDATE s SET s.IsSaved = 1
+            DECLARE @inserted INT = @@ROWCOUNT;
+
+            --Rows that were fully valid but already present in ArrivalLog for this
+            -- date + port.Without this the user sees an unexplained shortfall
+            --(1,800 of 2,100 saved) and assumes something broke.
+
+            DECLARE @duplicates INT = (SELECT COUNT(*) FROM @savedRows) -@inserted;
+
+            --status change in ScrapedData: these vessels are now in master data history
+            UPDATE s SET s.IsSaved = 1
                 FROM ScrapedData s JOIN @savedRows sr ON sr.ScrapeID = s.ScrapeID;
 
-                SELECT @inserted AS Inserted, @unregistered AS Unregistered; ";
+            COMMIT TRANSACTION;
+
+            SELECT @inserted AS Inserted, @duplicates AS Duplicates,
+                   @unregistered AS Unregistered,
+                   @noImo AS NoImo, @noCompany AS NoCompany;
+            ";
+
             using var c = Conn();
-            var r = c.QuerySingle<(int Inserted, int Unregistered)>(sql, new
+            var r = c.QuerySingle<(int Inserted, int Duplicates, int Unregistered, int NoImo, int NoCompany)>(sql, new
             {
                 userId,
                 importDate = importDate.Date,
                 bySelection = bySelection ? 1 : 0,
-                ids = bySelection ? ids : new[] { -1 }   // Dapper needs a non-empty list for IN
-            });
+                // One parameter regardless of how many ids — an empty TVP is legal,
+                // so the old "new[] { -1 }" placeholder is no longer needed.
+                ids = idTable.AsTableValuedParameter("dbo.IntIdList")
+            }, commandTimeout: 300);
+            DeletepreviousImportData(prevDate);
             return r;
         }
 
@@ -506,38 +803,57 @@ namespace ShippingManagement.Web.Data
         }
 
         /* ── Arrival Log / Reports ─────────────────────────────────────── */
+        //Change this is ShippingRepository-> GetArrivals
         public IEnumerable<ArrivalLog> GetArrivals(DateTime? date, string? country, bool excludeTagged = false,
                                                    string? search = null, bool regularOnly = false, string? portName = null,
                                                    DateTime? dateFrom = null, DateTime? dateTo = null)
         {
             // @date keeps the original single-day behaviour for existing callers.
             // @dateFrom / @dateTo enable an (inclusive) date-range search for the Daily Report.
-            const string sql = @"
-                SELECT * FROM vw_ArrivalDetail
-                WHERE (@date IS NULL OR ArrivalDate = @date)
-                  AND (@dateFrom IS NULL OR ArrivalDate >= @dateFrom)
-                  AND (@dateTo IS NULL OR ArrivalDate <= @dateTo)
-                  AND (@country IS NULL OR Country = @country)
-                  AND (@portName IS NULL OR PortName = @portName)
-                  AND (@exclTagged = 0 OR IsTagged = 0)
-                  AND (@search IS NULL OR VesselName LIKE @like OR IMO_Number LIKE @like OR CompanyName LIKE @like)
-                  AND (@regOnly = 0 OR CustomerStatus = 'Regular')
-                ORDER BY ArrivalDate, CompanyName, VesselName";
+            // The upper bound is exclusive-next-midnight rather than "<= @dateTo" so the
+            // range stays correct even if ArrivalDate ever carries a time component —
+            // "<= 2026-07-24" would silently drop every row stamped later that day.
+            //const string sql = @"
+            //    SELECT * FROM vw_ArrivalDetail
+            //    WHERE (@date IS NULL OR ArrivalDate = @date)
+            //      AND (@dateFrom IS NULL OR ArrivalDate >= @dateFrom)
+            //      AND (@dateTo IS NULL OR ArrivalDate < DATEADD(day, 1, @dateTo))
+            //      AND (@country IS NULL OR LTRIM(RTRIM(Country)) = LTRIM(RTRIM(@country)))
+            //      AND (@portName IS NULL OR PortName = @portName)
+            //      AND (@exclTagged = 0 OR IsTagged = 0)
+            //      AND (@search IS NULL OR VesselName LIKE @like OR IMO_Number LIKE @like OR CompanyName LIKE @like)
+            //      AND (@regOnly = 0 OR CustomerStatus = 'Regular')
+            //    ORDER BY ArrivalDate, CompanyName, VesselName";
+            const string sql = @"WITH InRange AS (
+                            SELECT *,
+                                   COUNT(*) OVER (PARTITION BY IMO_Number) AS OccurrenceCount
+                            FROM   vw_ArrivalDetail
+                            WHERE   (@dateFrom IS NULL OR ArrivalDate >= @dateFrom)
+                                      AND (@dateTo IS NULL OR ArrivalDate < DATEADD(day, 1, @dateTo))
+                                      AND (@country IS NULL OR LTRIM(RTRIM(Country)) = LTRIM(RTRIM(@country)))
+                                      AND (@portName IS NULL OR PortName = @portName)
+                                      AND (@exclTagged = 0 OR IsTagged = 0)
+                                      AND (@search IS NULL OR VesselName LIKE @like OR IMO_Number LIKE @like OR CompanyName LIKE @like)
+                                      AND (@regOnly = 0 OR CustomerStatus = 'Regular')
+                            )
+                            SELECT r.*
+                            FROM   InRange r
+                            WHERE  OccurrenceCount = 1 AND (@date IS NULL OR ArrivalDate = @date)
+                            ORDER BY ArrivalDate, VesselName";
             using var c = Conn();
             return c.Query<ArrivalLog>(sql, new
             {
-                date = date?.Date,
+                date = dateTo?.Date,
                 dateFrom = dateFrom?.Date,
                 dateTo = dateTo?.Date,
                 country,
                 portName,
                 exclTagged = excludeTagged ? 1 : 0,
                 search,
-                like = $"%{search}%",
+                like = $" %{search}%",
                 regOnly = regularOnly ? 1 : 0
             });
         }
-
         public IEnumerable<ArrivalLog> GetVesselHistory(string imo)
         {
             using var c = Conn();
@@ -557,9 +873,21 @@ namespace ShippingManagement.Web.Data
         {
             var ids = (logIds ?? Enumerable.Empty<int>()).Distinct().ToList();
             if (ids.Count == 0) return 0;
+
+            // Same 2100-parameter trap as SaveFilteredToArrivalLog: "LogID IN @ids"
+            // becomes one parameter per id, so "Tag duplicates" over a wide date range
+            // would fail once it matched 2100+ rows. TVP = one parameter, any size.
+            var idTable = new DataTable();
+            idTable.Columns.Add("Id", typeof(int));
+            foreach (var id in ids) idTable.Rows.Add(id);
+
             using var c = Conn();
-            return c.Execute("UPDATE ArrivalLog SET IsTagged=@tagged WHERE LogID IN @ids",
-                             new { tagged, ids });
+            return c.Execute(@"
+                UPDATE al SET al.IsTagged = @tagged
+                FROM ArrivalLog al
+                JOIN @ids i ON i.Id = al.LogID",
+                new { tagged, ids = idTable.AsTableValuedParameter("dbo.IntIdList") },
+                commandTimeout: 300);
         }
 
         public bool IsAsiaCountry(string? countryName)
@@ -634,15 +962,16 @@ namespace ShippingManagement.Web.Data
         }
 
         /// <summary>Distinct port names (for Port filters and Port-Wise reports).</summary>
-        public IEnumerable<string> GetDistinctPortNames()
-        {
-            using var c = Conn();
-            return c.Query<string>(@"
-                SELECT PortName FROM Ports
-                UNION
-                SELECT DISTINCT PortName FROM ArrivalLog WHERE PortName IS NOT NULL
-                ORDER BY PortName");
-        }
+        public IEnumerable<string> GetDistinctPortNames() =>
+            Cached("portNames", TimeSpan.FromSeconds(60), () =>
+            {
+                using var c = Conn();
+                return c.Query<string>(@"
+                    SELECT PortName FROM Ports
+                    UNION
+                    SELECT DISTINCT PortName FROM ArrivalLog WHERE PortName IS NOT NULL
+                    ORDER BY PortName").ToList();
+            });
 
         /* ── Dashboard counters ────────────────────────────────────────── */
         public (int vessels, int companies, int regulars, int todayArrivals) GetDashboardCounts()
@@ -666,6 +995,12 @@ namespace ShippingManagement.Web.Data
             FROM VesselTypes
             ORDER BY TypeName";
             return conn.Query<VesselType>(sql).ToList();
+        }
+        public void DeletepreviousImportData(DateTime prevDate)
+        {
+            using var conn = new SqlConnection(_cs);
+            const string sql = @"delete from ScrapedData  where ImportDate <= @prevDate";
+            conn.Execute(sql, new { prevDate });
         }
     }
 }

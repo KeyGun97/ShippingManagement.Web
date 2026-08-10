@@ -1,5 +1,11 @@
 @model List<Company>
-@{ ViewData["Title"] = "Companies"; var returnTo = Context.Request.Path + Context.Request.QueryString; }
+@{
+    ViewData["Title"] = "Companies";
+    var returnTo = Context.Request.Path + Context.Request.QueryString;
+    // Delete is an Administrator-only feature; normal users never see the button,
+    // and the controller re-checks the role server-side regardless.
+    bool isAdmin = Context.Session.GetString("Role") == "Admin";
+}
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h3><i class="bi bi-buildings me-2"></i>Company Registration & Fleet Tracking</h3>
     <div>
@@ -61,6 +67,14 @@
                         @(c.Status == "Regular" ? "Set Non-Regular" : "Set Regular")
                     </button>
                 </form>
+                @if (isAdmin)
+                {
+                    <button type="button" class="btn btn-sm btn-outline-danger delete-co"
+                            data-id="@c.CompanyID" data-name="@c.CompanyName" data-fleet="@c.FleetCount"
+                            title="Delete this company (Administrator only — password required)">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                }
             </td>
         </tr>
     }
@@ -68,6 +82,51 @@
     </tbody>
 </table>
 </div></div>
+@{
+    int pg = (int)ViewBag.Page, totalPages = (int)ViewBag.TotalPages, total = (int)ViewBag.Total, ps = (int)ViewBag.PageSize;
+    int from = total == 0 ? 0 : (pg - 1) * ps + 1;
+    int to = Math.Min(pg * ps, total);
+    var rvAll = new Dictionary<string, string?> {
+        ["q"] = (string?)ViewBag.Q,
+        ["regularOnly"] = ((bool)ViewBag.RegularOnly).ToString(),
+        ["pageSize"] = ps.ToString()
+    };
+    var rv = rvAll.Where(kv => !string.IsNullOrEmpty(kv.Value))
+                  .ToDictionary(kv => kv.Key, kv => kv.Value!);
+    int winStart = Math.Max(1, pg - 2), winEnd = Math.Min(totalPages, pg + 2);
+}
+<div class="d-flex justify-content-between align-items-center mt-2 no-print">
+    <span class="text-muted small">Showing @from–@to of @total companies</span>
+    @if (totalPages > 1)
+    {
+        <nav>
+            <ul class="pagination pagination-sm mb-0">
+                <li class="page-item @(pg <= 1 ? "disabled" : "")">
+                    <a class="page-link" asp-action="Index" asp-all-route-data="rv" asp-route-page="@(pg-1)">&laquo;</a>
+                </li>
+                @if (winStart > 1)
+                {
+                    <li class="page-item"><a class="page-link" asp-action="Index" asp-all-route-data="rv" asp-route-page="1">1</a></li>
+                    @if (winStart > 2) { <li class="page-item disabled"><span class="page-link">…</span></li> }
+                }
+                @for (int p = winStart; p <= winEnd; p++)
+                {
+                    <li class="page-item @(p == pg ? "active" : "")">
+                        <a class="page-link" asp-action="Index" asp-all-route-data="rv" asp-route-page="@p">@p</a>
+                    </li>
+                }
+                @if (winEnd < totalPages)
+                {
+                    @if (winEnd < totalPages - 1) { <li class="page-item disabled"><span class="page-link">…</span></li> }
+                    <li class="page-item"><a class="page-link" asp-action="Index" asp-all-route-data="rv" asp-route-page="@totalPages">@totalPages</a></li>
+                }
+                <li class="page-item @(pg >= totalPages ? "disabled" : "")">
+                    <a class="page-link" asp-action="Index" asp-all-route-data="rv" asp-route-page="@(pg+1)">&raquo;</a>
+                </li>
+            </ul>
+        </nav>
+    }
+</div>
 <p class="text-muted small mt-2">Fleet size updates automatically as vessels are added, removed, or reassigned. Regular-customer rows are shown in blue throughout the system.</p>
 
 <!-- New company modal -->
@@ -91,3 +150,80 @@
     <div class="modal-footer"><button class="btn btn-success">Save</button></div>
 </form>
 </div></div></div>
+
+@if (isAdmin)
+{
+    <!-- Delete company modal — Administrator only, password confirmation required -->
+    <div class="modal fade" id="delCoModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+        <form method="post" asp-action="Delete" id="delCoForm">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="id" id="del_id" />
+            <input type="hidden" name="returnTo" value="@returnTo" />
+            <div class="modal-header bg-danger-subtle">
+                <h5 class="modal-title text-danger"><i class="bi bi-exclamation-triangle"></i> Delete Company</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-2">
+                    You are about to permanently delete
+                    <strong id="del_name" class="text-danger"></strong>. This cannot be undone.
+                </p>
+
+                <div id="del_fleetWarn" class="alert alert-warning py-2 px-3 small d-none">
+                    This company still has <strong id="del_fleet"></strong> vessel(s) registered to it.
+                    <div class="form-check mt-2">
+                        <input class="form-check-input" type="checkbox" name="unlinkVessels" value="true" id="del_unlink" />
+                        <label class="form-check-label" for="del_unlink">
+                            Also unlink its vessels <em class="text-muted">(the vessels are kept — only the company link is cleared)</em>
+                        </label>
+                    </div>
+                </div>
+
+                <label class="form-label fw-bold mb-1">Administrator password *</label>
+                <input type="password" name="adminPassword" id="del_pwd" class="form-control"
+                       autocomplete="current-password" placeholder="Re-enter your login password" required />
+                <div class="form-text">Only an Administrator can delete a company. Your own login password confirms the action.</div>
+                <div id="del_msg" class="text-danger small mt-1"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button class="btn btn-danger"><i class="bi bi-trash"></i> Delete Company</button>
+            </div>
+        </form>
+    </div></div></div>
+}
+
+@section Scripts {
+    <script>
+        // Delete-company dialog (Administrator only — the button only exists for admins).
+        $(document).on('click', '.delete-co', function () {
+            const b = $(this), fleet = parseInt(b.data('fleet'), 10) || 0;
+            $('#del_id').val(b.data('id'));
+            $('#del_name').text(b.data('name'));
+            $('#del_pwd').val('');
+            $('#del_msg').text('');
+            $('#del_unlink').prop('checked', false);
+            $('#del_fleet').text(fleet);
+            $('#del_fleetWarn').toggleClass('d-none', fleet === 0);
+            new bootstrap.Modal(document.getElementById('delCoModal')).show();
+        });
+
+        // Keep prompting until the password box is filled and, when the company
+        // still owns vessels, the unlink option has been acknowledged.
+        $(document).on('submit', '#delCoForm', function (e) {
+            if (!$('#del_pwd').val()) {
+                e.preventDefault();
+                $('#del_msg').text('Please enter your Administrator password to confirm.');
+                $('#del_pwd').focus();
+                return false;
+            }
+            const fleetShown = !$('#del_fleetWarn').hasClass('d-none');
+            if (fleetShown && !$('#del_unlink').is(':checked')) {
+                e.preventDefault();
+                $('#del_msg').text('This company still has vessels — tick "Also unlink its vessels" to continue.');
+                return false;
+            }
+            return true;
+        });
+    </script>
+}

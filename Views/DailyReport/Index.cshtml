@@ -18,6 +18,16 @@
     int uniqueCount = (int)(ViewBag.UniqueCount ?? 0);
     int hiddenCount = totalCount - uniqueCount;   // rows collapsed away in the unique view
     var duplicateLogIds = ViewBag.DuplicateLogIds as HashSet<int> ?? new HashSet<int>();
+    int duplicateCount = (int)(ViewBag.DuplicateCount ?? 0);   // rows that belong to a dup group
+    int autoTagged = (int)(ViewBag.AutoTagged ?? 0);           // rows tagged by this request
+    string? dateWarning = ViewBag.DateWarning as string;
+}
+
+@if (!string.IsNullOrEmpty(dateWarning))
+{
+    <div class="alert alert-danger py-2 px-3 mb-3 small">
+        <i class="bi bi-exclamation-triangle"></i> @dateWarning
+    </div>
 }
 
 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -54,11 +64,20 @@
             <option value="">All countries</option>
             @foreach (var c in countries)
             {
-                <option selected="@(country == c.CountryName)">@c.CountryName</option>
+                @* Explicit value= â€” without it the browser submits the element's text
+                   content, which carries the Razor indentation whitespace and no
+                   longer matches the stored Country, so the filter returned nothing. *@
+                <option value="@c.CountryName"
+                        selected="@(string.Equals(country, c.CountryName, StringComparison.OrdinalIgnoreCase))">
+                    @c.CountryName
+                </option>
             }
         </select>
     </div>
     <input type="hidden" name="show" value="true" />
+    @* Keep the duplicates view when the date range is changed, otherwise pressing
+       Show Report silently flipped the user back to the unique view. *@
+    <input type="hidden" name="showDuplicates" value="@showDuplicates.ToString().ToLower()" />
     <div class="col-auto"><button class="btn btn-sm btn-primary"><i class="bi bi-search"></i> Show Report</button></div>
     @if (show)
     {
@@ -75,21 +94,26 @@
     }
 </form>
 
- @if (show && duplicateLogIds.Count > 0)
-// {
-//     <form method="post" asp-action="TagDuplicates" class="mb-3 d-flex align-items-center gap-2"
-//           onsubmit="return confirm('Tag EVERY duplicate row (same IMO + vessel) in this range? All copies are tagged — duplicated vessels will be excluded from exports entirely.');">
-//         @Html.AntiForgeryToken()
-//         <input type="hidden" name="dateFrom" value="@fromStr" />
-//         <input type="hidden" name="dateTo" value="@toStr" />
-//         <input type="hidden" name="country" value="@country" />
-//         <input type="hidden" name="showDuplicates" value="@showDuplicates.ToString().ToLower()" />
-//         <button type="submit" class="btn btn-sm btn-warning">
-//             <i class="bi bi-tags"></i> Tag duplicates (@duplicateLogIds.Count)
-//         </button>
-//         <span class="small text-muted">Tags every copy of each duplicated vessel.</span>
-//     </form>
-// }*/
+@if (show && duplicateCount > 0)
+{
+    <div class="alert alert-warning py-2 px-3 mb-3 small">
+        <i class="bi bi-tags"></i>
+        @if (autoTagged > 0)
+        {
+            <text>
+                Tagged <strong>@autoTagged</strong> duplicate row(s) automatically
+                (@duplicateCount row(s) in this range share an IMO + vessel name).
+            </text>
+        }
+        else
+        {
+            <text>
+                @duplicateCount duplicate row(s) in this range &mdash; already tagged.
+            </text>
+        }
+        <span class="text-muted ms-1">Tagged rows are excluded from exports.</span>
+    </div>
+}
 
 @if (show)
 {

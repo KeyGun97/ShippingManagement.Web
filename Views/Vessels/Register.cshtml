@@ -1,9 +1,23 @@
 @model Vessel
 @{
     ViewData["Title"] = "Register Vessel";
+    // Set by the controller when a save was rejected — used to highlight each field.
+    var missing = ViewBag.MissingFields as List<string> ?? new List<string>();
+    bool missImo = missing.Any(m => m.StartsWith("IMO"));
+    bool missName = missing.Contains("Vessel Name");
+    bool missCompany = missing.Contains("Company Name");
 }
 <h3 class="mb-3"><i class="bi bi-water me-2"></i>Vessel Registration Form</h3>
 <p class="text-muted">Data is saved by <strong>IMO Number</strong>. Enter IMO and press <kbd>Tab</kbd> — if the vessel exists, its data loads automatically; otherwise enter details manually.</p>
+
+@if (missing.Count > 0)
+{
+    <div class="alert alert-danger py-2 px-3">
+        <i class="bi bi-exclamation-octagon"></i>
+        <strong>The vessel was not saved.</strong> These mandatory fields are still missing:
+        <strong>@string.Join(", ", missing)</strong>. Complete them and press Save Vessel again.
+    </div>
+}
 
 <form method="post" asp-action="Register" id="vesselForm">
     @Html.AntiForgeryToken()
@@ -11,13 +25,16 @@
     <div class="card shadow-sm mb-3">
         <div class="card-body row g-3">
             <div class="col-md-3">
-                <label class="form-label fw-bold">IMO # *</label>
-                <input asp-for="IMO_Number" id="imo" class="form-control" required maxlength="15" />
+                <label class="form-label fw-bold">IMO # <span class="text-danger">*</span></label>
+                <input asp-for="IMO_Number" id="imo" class="form-control @(missImo ? "is-invalid" : "")"
+                       required maxlength="15" inputmode="numeric" />
+                <div class="invalid-feedback">IMO Number is required — 7 digits.</div>
                 <div id="imoMsg" class="form-text"></div>
             </div>
             <div class="col-md-4">
-                <label class="form-label fw-bold">Vessel Name *</label>
-                <input asp-for="VesselName" id="VesselName" class="form-control" required />
+                <label class="form-label fw-bold">Vessel Name <span class="text-danger">*</span></label>
+                <input asp-for="VesselName" id="VesselName" class="form-control @(missName ? "is-invalid" : "")" required />
+                <div class="invalid-feedback">Vessel Name is required.</div>
             </div>
             <div class="col-md-3">
                 <label class="form-label">Vessel Type</label>
@@ -35,14 +52,19 @@
             </div>
 
             <div class="col-md-4">
-                <label class="form-label fw-bold">Company Name</label>
+                <label class="form-label fw-bold">Company Name <span class="text-danger">*</span></label>
                 <div class="input-group">
                     @{
                         var companies = (List<Company>)ViewBag.Companies;
-                        var selectedCompany = companies.FirstOrDefault(c => c.CompanyID == Model.CompanyID)?.CompanyName;
+                        var selectedCompany = companies.FirstOrDefault(c => c.CompanyID == Model.CompanyID)?.CompanyName
+                                              ?? ViewBag.TypedCompanyName as string;
                     }
-                    <input list="companyList" id="companyName" class="form-control"
-                           value="@selectedCompany" placeholder="Type company name…" />
+                    @* name="companyName" so the typed text reaches the server: the hidden
+                       CompanyID can still be empty if the user typed a name without the
+                       datalist lookup firing, and the controller resolves it by name. *@
+                    <input list="companyList" id="companyName" name="companyName"
+                           class="form-control @(missCompany ? "is-invalid" : "")"
+                           value="@selectedCompany" placeholder="Type company name…" required />
                     <button type="button" class="btn btn-outline-success" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
                         <i class="bi bi-plus"></i> Add Company
                     </button>
@@ -138,6 +160,52 @@
 
 @section Scripts {
     <script>
+        /* ── MANDATORY-FIELD GATE ────────────────────────────────────────────────
+           A vessel must not be added without an IMO Number and a Company. This
+           blocks the submit, highlights every missing field in red and keeps
+           prompting until they are all filled in. The controller repeats the same
+           checks server-side, so this cannot be bypassed by disabling JavaScript. */
+        function validateVessel() {
+            const problems = [];
+
+            const imoEl = document.getElementById('imo');
+            const nameEl = document.getElementById('VesselName');
+            const coEl = document.getElementById('companyName');
+            const coIdEl = document.getElementById('CompanyID');
+
+            const imoDigits = (imoEl.value || '').replace(/\D/g, '');
+            const setState = (el, bad) => el.classList.toggle('is-invalid', bad);
+
+            const imoBad = imoDigits.length !== 7;
+            setState(imoEl, imoBad);
+            if (!(imoEl.value || '').trim()) problems.push('IMO Number');
+            else if (imoBad) problems.push('IMO Number (must be exactly 7 digits)');
+
+            const nameBad = !(nameEl.value || '').trim();
+            setState(nameEl, nameBad);
+            if (nameBad) problems.push('Vessel Name');
+
+            const coBad = !(coEl.value || '').trim() || !(coIdEl.value || '').trim();
+            setState(coEl, coBad);
+            if (!(coEl.value || '').trim()) problems.push('Company Name');
+            else if (!(coIdEl.value || '').trim())
+                problems.push('Company Name (not recognised — pick it from the list or use Add Company)');
+
+            if (problems.length) {
+                alert('The vessel cannot be saved yet.\n\nPlease complete:\n  • ' + problems.join('\n  • '));
+                const first = document.querySelector('#vesselForm .is-invalid');
+                if (first) first.focus();
+                return false;
+            }
+            return true;
+        }
+        $('#vesselForm').on('submit', function (e) {
+            if (!validateVessel()) { e.preventDefault(); return false; }
+            return true;
+        });
+        // Clear the red highlight as soon as the user starts fixing a field.
+        $('#imo, #VesselName, #companyName').on('input', function () { $(this).removeClass('is-invalid'); });
+
         const fields = ["VesselName","VesselTypeID","CallSign","Port","ETA","Country","Address","PhoneNo","Terms",
                         "ConfirmEmail","PurchaseEmail","CateringEmail","GenerateEmail","DeckEngEmail","GeneralEmail","Status"];
 

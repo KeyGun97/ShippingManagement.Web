@@ -14,14 +14,14 @@
         <div class="card mb-3">
             <div class="card-header">1 — Add Country</div>
             <div class="card-body">
-                <form asp-action="AddCountry" method="post" class="row g-2">
+                <form asp-action="AddCountry" method="post" class="d-flex align-items-center gap-2 flex-wrap">
                     @Html.AntiForgeryToken()
-                    <div class="col-7"><input name="countryName" class="form-control form-control-sm" placeholder="Country name" required /></div>
-                    <div class="col-3 form-check d-flex align-items-center ms-2">
-                        <input type="checkbox" class="form-check-input me-1" name="isAsia" value="true" id="isAsia" />
-                        <label for="isAsia" class="form-check-label small">Asia</label>
+                    <input name="countryName" class="form-control form-control-sm flex-grow-1" style="min-width:140px" placeholder="Country name" required />
+                    <div class="form-check d-flex align-items-center gap-1 mb-0">
+                        <input type="checkbox" class="form-check-input mt-0" name="isAsia" value="true" id="isAsia" />
+                        <label for="isAsia" class="form-check-label small mb-0">Asia</label>
                     </div>
-                    <div class="col-1"><button class="btn btn-sm btn-success">Add</button></div>
+                    <button class="btn btn-sm btn-success">Add</button>
                 </form>
                 <div class="form-text">The Asia flag drives the two-sheet (Asia / Non-Asia) Daily Report export.</div>
             </div>

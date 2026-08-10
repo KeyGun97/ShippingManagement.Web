@@ -47,6 +47,7 @@ import logging
 import os
 import re
 import sys
+import time as _time
 import threading as _threading
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -96,6 +97,77 @@ def log(msg: str):
     logger.info(msg)
 
 
+# ── Progress sidecar file ─────────────────────────────────────────────────
+# The web app's "Fetch Data" loading overlay polls a tiny JSON file that sits
+# next to this run's output (e.g. output_myshiptracking.progress.json) and
+# shows a live percentage + ETA. We rewrite it whenever a source finishes.
+_PROGRESS_PATH: "Path | None" = None
+_PROGRESS_LOCK = _threading.Lock()
+_PROGRESS_DONE = 0
+_PROGRESS_TOTAL = 0
+_PROGRESS_ROWS = 0     # vessels collected so far — shown live in the overlay
+
+
+def _progress_write(phase: str):
+    if _PROGRESS_PATH is None:
+        return
+    try:
+        _PROGRESS_PATH.write_text(json.dumps({
+            "done": _PROGRESS_DONE,
+            "total": _PROGRESS_TOTAL,
+            "rows": _PROGRESS_ROWS,
+            "phase": phase,
+            "ts": _time.time(),
+        }), encoding="utf-8")
+    except Exception:
+        pass   # progress is best-effort — never let it break the scrape
+
+
+def _progress_init(output_path, total: int):
+    """Create/reset the sidecar next to output_path. Call once from main()."""
+    global _PROGRESS_PATH, _PROGRESS_DONE, _PROGRESS_TOTAL, _PROGRESS_ROWS
+    _PROGRESS_PATH = Path(output_path).with_suffix(".progress.json")
+    _PROGRESS_DONE, _PROGRESS_TOTAL, _PROGRESS_ROWS = 0, max(0, int(total)), 0
+    _progress_write("starting")
+
+
+def _progress_tick(source_name: str = ""):
+    """One source finished (success OR failure) — bump the counter."""
+    global _PROGRESS_DONE
+    with _PROGRESS_LOCK:
+        _PROGRESS_DONE += 1
+        done = _PROGRESS_DONE
+    _progress_write(f"scraped {source_name}".strip() if source_name
+                    else f"{done}/{_PROGRESS_TOTAL}")
+
+
+def _progress_add(n: int, label: str = "", rows: int = 0):
+    """Bump the counter by n at once (e.g. pages skipped by an early stop),
+    so the percentage never stalls below the work actually consumed. Also
+    credits any vessels collected (`rows`) to the live found-count."""
+    global _PROGRESS_DONE, _PROGRESS_ROWS
+    if n <= 0 and rows <= 0:
+        return
+    with _PROGRESS_LOCK:
+        _PROGRESS_DONE += max(0, n)
+        _PROGRESS_ROWS += max(0, rows)
+    _progress_write(label or "scraping")
+
+
+def _expected_pages(source: dict) -> int:
+    """Number of pages this source will be charged in the progress total —
+    must mirror MyShipTrackingScraper.build_page_urls exactly."""
+    start = int(source.get("startPage", 1) or 1)
+    end = int(source.get("endPage", start) or start)
+    if end < start:
+        start, end = end, start
+    n = end - start + 1
+    max_pages = int(source.get("maxPages", 0) or 0)
+    if max_pages and n > max_pages:
+        n = max_pages
+    return max(1, n)
+
+
 # Default ETA window (days). A run may override via config "maxDays"/"maxEtaDays".
 DEFAULT_MAX_DAYS = 10
 
@@ -110,9 +182,17 @@ PAGE_WAIT_SECONDS = float(os.environ.get("SCRAPER_PAGE_WAIT", "6") or 6)
 def build_driver(headless: bool = True, implicit_wait: float = 0):
     chrome_options = Options()
     # Set SCRAPER_HEADFUL=1 to watch the browser locally while debugging selectors.
-    headful = os.environ.get("SCRAPER_HEADFUL", "").strip().lower() in ("1", "true", "yes")
+    # SCRAPER_FORCE_HEADLESS=1 (set by the web app on every run) always wins, so
+    # a machine-wide headful debug setting can never pop windows on the server.
+    force_headless = os.environ.get("SCRAPER_FORCE_HEADLESS", "").strip().lower() in ("1", "true", "yes")
+    headful = (not force_headless and
+               os.environ.get("SCRAPER_HEADFUL", "").strip().lower() in ("1", "true", "yes"))
     if headless and not headful:
         chrome_options.add_argument("--headless=new")   # Run in background
+        # Insurance: some Chrome/driver combos have silently ignored the
+        # headless switch — if a window does appear, park it far off-screen
+        # instead of splashing a blank white browser across the desktop.
+        chrome_options.add_argument("--window-position=-32000,-32000")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")   # safer under concurrency
@@ -134,6 +214,26 @@ def build_driver(headless: bool = True, implicit_wait: float = 0):
     chrome_options.add_argument(                            # look like a normal browser
         "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+    # ── IIS/service-account fix + resource throttling ──────────────────
+    # 1) Under IIS the app-pool identity's profile dir is systemprofile, which
+    #    Chrome can't use -> "DevToolsActivePort file doesn't exist". Give every
+    #    instance its own throwaway profile in %TEMP% and let the OS pick the port.
+    # 2) On a busy server, spinning up Chrome's usual background machinery for
+    #    every one of N parallel browsers is what pins the CPU at 100%. These
+    #    flags strip that machinery down so each browser is far lighter.
+    import tempfile, uuid
+    profile_dir = os.path.join(tempfile.gettempdir(),
+                               f"chrome-prof-{uuid.uuid4().hex}")
+    chrome_options.add_argument(f"--user-data-dir={profile_dir}")
+    chrome_options.add_argument("--remote-debugging-port=0")
+    chrome_options.add_argument("--disable-crash-reporter")
+    chrome_options.add_argument("--disable-software-rasterizer")
+    chrome_options.add_argument("--disable-background-timer-throttling")
+    chrome_options.add_argument("--disable-renderer-backgrounding")
+    chrome_options.add_argument("--disable-features=Translate,MediaRouter,OptimizationHints")
+    chrome_options.add_argument("--no-first-run")
+    chrome_options.add_argument("--no-default-browser-check")
+    chrome_options.add_argument("--renderer-process-limit=1")
     driver = webdriver.Chrome(options=chrome_options)
     # Hard cap on a single navigation so one hung port can't stall the whole run.
     try:
@@ -320,7 +420,7 @@ class MyShipTrackingScraper(BaseScraper):
             return True, None
         return cls._norm_name(dest) == cls._norm_name(source.get("portName", "")), dest
 
-    def scrape(self, source: dict) -> list:
+    def scrape(self, source: dict, on_page=None) -> list:
         rows_out = []
         name = source.get("sourceName", "MyShipTracking")
 
@@ -343,18 +443,37 @@ class MyShipTrackingScraper(BaseScraper):
                     name, source.get('portName'), len(urls),
                     source.get('startPage'), source.get('endPage'))
 
+        # SPEED: an empty page no longer burns the full PAGE_WAIT — the wait
+        # also ends the moment the site explicitly says there are no results.
+        def _rows_or_empty_marker(d):
+            rows_ = d.find_elements(By.CSS_SELECTOR, "table tbody tr")
+            if rows_:
+                return rows_
+            try:
+                if d.execute_script(
+                        "return /\\bno\\s+(records?|results?|data|vessels?)\\b/i"
+                        ".test(document.body ? document.body.innerText : '')"):
+                    return True          # marker present → stop waiting (empty page)
+            except Exception:
+                pass
+            return False
+
         for page_no, url in enumerate(urls, start=int(source.get("startPage", 1) or 1)):
             try:
                 self.driver.get(url)
                 try:
-                    WebDriverWait(self.driver, PAGE_WAIT_SECONDS).until(
-                        lambda d: d.find_elements(By.CSS_SELECTOR, "table tbody tr"))
+                    WebDriverWait(self.driver, PAGE_WAIT_SECONDS).until(_rows_or_empty_marker)
                 except TimeoutException:
                     pass
                 rows = self.driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
             except Exception as ex:
                 logger.warning("%s page %s: %s", name, page_no, ex)
+                if on_page:
+                    on_page()            # progress: this page attempt is consumed
                 continue
+
+            if on_page:
+                on_page()                # progress: one page done (rows or empty)
 
             if not rows:                                  # empty page -> stop paging
                 logger.info("%s page %s: empty — stopping pagination.", name, page_no)
@@ -396,11 +515,28 @@ class MyShipTrackingScraper(BaseScraper):
 # ════════════════════════════════════════════════════════════════════════
 def _mst_worker(name: str, task_queue, results: list, lock, max_days: int):
     driver = None
+    # Stagger each worker's Chrome launch so N browsers don't all initialise in
+    # the same instant and spike the CPU to 100% (which itself causes the
+    # "DevToolsActivePort" startup failures). ~1.5s apart by worker index.
     try:
-        driver = build_driver()
-    except Exception as ex:
-        logger.error("worker %s: could not start Chrome: %s", name, ex)
-        return
+        _time.sleep(1.5 * (int(name) - 1))
+    except Exception:
+        pass
+    # Retry the launch a few times with backoff: on a loaded server the first
+    # attempt can lose the CPU race, but a second attempt a few seconds later
+    # usually wins instead of killing the whole worker.
+    for attempt in range(1, 4):
+        try:
+            driver = build_driver()
+            break
+        except Exception as ex:
+            if attempt == 3:
+                logger.error("worker %s: could not start Chrome after %d tries: %s",
+                             name, attempt, ex)
+                return
+            logger.warning("worker %s: Chrome start attempt %d failed, retrying: %s",
+                           name, attempt, ex)
+            _time.sleep(3 * attempt)
     scraper = MyShipTrackingScraper(driver, max_days)
     try:
         while True:
@@ -408,8 +544,19 @@ def _mst_worker(name: str, task_queue, results: list, lock, max_days: int):
                 source = task_queue.get_nowait()
             except _QueueEmpty:
                 break
+            # Progress is charged per PAGE (finer, earlier ETA). Whatever this
+            # source doesn't consume (early stop on an empty page, or a crash)
+            # is settled afterwards so the percentage never stalls.
+            expected = _expected_pages(source)
+            ticked = [0]
+            label = source.get("portName") or source.get("sourceName") or ""
+
+            def _on_page(_label=label, _ticked=ticked):
+                _ticked[0] += 1
+                _progress_tick(_label)
+
             try:
-                rows = scraper.scrape(source)
+                rows = scraper.scrape(source, on_page=_on_page)
             except Exception as ex:
                 logger.error("%s: %s", source.get('sourceName', '?'), ex)
                 rows = []
@@ -417,6 +564,8 @@ def _mst_worker(name: str, task_queue, results: list, lock, max_days: int):
                 task_queue.task_done()
             with lock:
                 results.append((source, rows))
+            remaining = expected - ticked[0]
+            _progress_add(max(0, remaining), f"scraped {label}".strip(), rows=len(rows))
     finally:
         if driver is not None:
             try:
@@ -479,7 +628,12 @@ def main():
 
     logger.info("MyShipTracking: %d source(s), up to %d browser(s).",
                 len(sources), max_workers)
+    # Progress units = PAGES (not sources): with hundreds of single-page
+    # sources the first units complete within seconds, so the overlay's ETA
+    # appears almost immediately instead of after several whole sources.
+    _progress_init(output_path, sum(_expected_pages(s) for s in sources))
     raw_results = scrape_myshiptracking_sources(sources, max_days, max_workers)
+    _progress_write("finishing")
 
     # ── MERGE + de-duplicate across all sources/pages ─────────────────────
     vessels, seen = [], set()

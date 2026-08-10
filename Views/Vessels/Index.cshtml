@@ -91,7 +91,8 @@
             </thead>
             <tbody>
                 @{
-                    int i = 1;
+                    // S.No continues across pages: page 2 with pageSize 50 starts at 51.
+                    int i = (((int)ViewBag.Page) - 1) * ((int)ViewBag.PageSize) + 1;
                 }
                 @foreach (var v in Model)
                 {
@@ -130,6 +131,53 @@
             </tbody>
         </table>
     </div>
+</div>
+@{
+    int pg = (int)ViewBag.Page, totalPages = (int)ViewBag.TotalPages, total = (int)ViewBag.Total, ps = (int)ViewBag.PageSize;
+    int from = total == 0 ? 0 : (pg - 1) * ps + 1;
+    int to = Math.Min(pg * ps, total);
+    // Route values shared by every page link so filters survive paging.
+    var rvAll = new Dictionary<string, string?> {
+        ["q"] = (string?)ViewBag.Q, ["companyId"] = ViewBag.CompanyId?.ToString(),
+        ["companyName"] = (string?)ViewBag.CompanyName, ["typeId"] = ViewBag.TypeId?.ToString(),
+        ["country"] = (string?)ViewBag.Country, ["regularOnly"] = ((bool)ViewBag.RegularOnly).ToString(),
+        ["port"] = (string?)ViewBag.Port, ["pageSize"] = ps.ToString()
+    };
+    var rv = rvAll.Where(kv => !string.IsNullOrEmpty(kv.Value))
+                  .ToDictionary(kv => kv.Key, kv => kv.Value!);
+    int winStart = Math.Max(1, pg - 2), winEnd = Math.Min(totalPages, pg + 2);
+}
+<div class="d-flex justify-content-between align-items-center mt-2 no-print">
+    <span class="text-muted small">Showing @from–@to of @total vessels</span>
+    @if (totalPages > 1)
+    {
+        <nav>
+            <ul class="pagination pagination-sm mb-0">
+                <li class="page-item @(pg <= 1 ? "disabled" : "")">
+                    <a class="page-link" asp-action="Index" asp-all-route-data="rv" asp-route-page="@(pg-1)">&laquo;</a>
+                </li>
+                @if (winStart > 1)
+                {
+                    <li class="page-item"><a class="page-link" asp-action="Index" asp-all-route-data="rv" asp-route-page="1">1</a></li>
+                    @if (winStart > 2) { <li class="page-item disabled"><span class="page-link">…</span></li> }
+                }
+                @for (int p = winStart; p <= winEnd; p++)
+                {
+                    <li class="page-item @(p == pg ? "active" : "")">
+                        <a class="page-link" asp-action="Index" asp-all-route-data="rv" asp-route-page="@p">@p</a>
+                    </li>
+                }
+                @if (winEnd < totalPages)
+                {
+                    @if (winEnd < totalPages - 1) { <li class="page-item disabled"><span class="page-link">…</span></li> }
+                    <li class="page-item"><a class="page-link" asp-action="Index" asp-all-route-data="rv" asp-route-page="@totalPages">@totalPages</a></li>
+                }
+                <li class="page-item @(pg >= totalPages ? "disabled" : "")">
+                    <a class="page-link" asp-action="Index" asp-all-route-data="rv" asp-route-page="@(pg+1)">&raquo;</a>
+                </li>
+            </ul>
+        </nav>
+    }
 </div>
 <p class="text-muted small mt-2"><span class="badge" style="background:#cfe2ff;color:#000">blue rows</span> = vessels of Regular Customers.</p>
 

@@ -114,6 +114,8 @@ namespace ShippingManagement.Web.Models
         public string? AssignedUserName { get; set; }
         public DateTime ImportDate { get; set; }
         public string? CustomerStatus { get; set; }   // for regular-customer highlighting
+        public string? CompanyName { get; set; }      // company linked to the registered vessel
+        public int? VesselCompanyID { get; set; }     // null => vessel has no company yet
     }
 
     public class ArrivalLog

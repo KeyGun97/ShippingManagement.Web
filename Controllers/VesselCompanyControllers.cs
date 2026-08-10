@@ -14,7 +14,8 @@ namespace ShippingManagement.Web.Controllers
         public VesselsController(ShippingRepository repo, ExportService export)
         { _repo = repo; _export = export; }
 
-        public IActionResult Index(string? q, int? companyId, string? companyName, int? typeId, string? country, bool regularOnly = false, string? port = null)
+        public IActionResult Index(string? q, int? companyId, string? companyName, int? typeId, string? country, bool regularOnly = false, string? port = null,
+                                   int page = 1, int pageSize = 50)
         {
             // Allow filtering by company NAME (typed into the text box, or carried from the
             // Companies → fleet-count link). If an id wasn't supplied, resolve it from the name.
@@ -29,14 +30,23 @@ namespace ShippingManagement.Web.Controllers
             // Show the resolved company name in the text box (falls back to whatever was typed).
             companyName = company?.CompanyName ?? companyName;
 
-            ViewBag.Companies = _repo.GetAllCompanies().ToList();
+            // Cached, lightweight lookups. GetCompanyNameList() replaces the old
+            // GetAllCompanies() call which queried vw_CompanyFleet (GROUP BY join
+            // over the whole Vessels table) on every page load just to fill a datalist.
+            ViewBag.Companies = _repo.GetCompanyNameList();
             ViewBag.Types = _repo.GetVesselTypes().ToList();
             ViewBag.Countries = _repo.GetCountries().ToList();
             ViewBag.Ports = _repo.GetDistinctPortNames().ToList();
             ViewBag.Q = q; ViewBag.CompanyId = companyId; ViewBag.CompanyName = companyName; ViewBag.TypeId = typeId;
             ViewBag.Country = country; ViewBag.RegularOnly = regularOnly; ViewBag.Port = port;
-            var rows = _repo.SearchVessels(string.IsNullOrWhiteSpace(q) ? null : q,
-                                           companyId, country, typeId, regularOnly, NullIfEmpty(port)).ToList();
+
+            // Paged: only one screen of rows leaves the database (was: ALL vessels,
+            // ALL columns, on every load — the main cause of the slow page).
+            var (rows, total) = _repo.SearchVesselsPaged(string.IsNullOrWhiteSpace(q) ? null : q,
+                                           companyId, country, typeId, regularOnly, NullIfEmpty(port),
+                                           page, pageSize);
+            ViewBag.Page = page; ViewBag.PageSize = pageSize; ViewBag.Total = total;
+            ViewBag.TotalPages = (int)Math.Ceiling(total / (double)pageSize);
             return View(rows);
         }
 
@@ -48,7 +58,7 @@ namespace ShippingManagement.Web.Controllers
         {
             var types = _repo.GetVesselTypes().ToList();
             ViewBag.Types = types;
-            ViewBag.Companies = _repo.GetAllCompanies().ToList();
+            ViewBag.Companies = _repo.GetCompanyNameList().ToList();   // dropdown only — no fleet aggregate needed
             // Where to go back to after Save — e.g. the Import Data page that linked here.
             ViewBag.ReturnUrl = Url.IsLocalUrl(returnUrl) ? returnUrl : null;
 
@@ -76,13 +86,44 @@ namespace ShippingManagement.Web.Controllers
         }
 
         [HttpPost, ValidateAntiForgeryToken]
-        public IActionResult Register(Vessel vessel, string? returnUrl = null)
+        public IActionResult Register(Vessel vessel, string? returnUrl = null, string? companyName = null)
         {
-            if (string.IsNullOrWhiteSpace(vessel.IMO_Number) || string.IsNullOrWhiteSpace(vessel.VesselName))
+            /* ── MANDATORY-FIELD VALIDATION ──────────────────────────────────────
+               A vessel must never reach the database with a blank IMO Number or no
+               Company — those are the incomplete records that pollute the reports.
+               On failure the form is RE-RENDERED (not redirected) so nothing the
+               user typed is lost, and every missing field is named and highlighted. */
+            var missing = new List<string>();
+
+            // The company box is a free-text datalist; resolve a typed name to its ID
+            // so "I typed it but the hidden ID never got set" is not a false rejection.
+            if (vessel.CompanyID is null or <= 0 && !string.IsNullOrWhiteSpace(companyName))
+                vessel.CompanyID = _repo.GetCompanyByName(companyName.Trim())?.CompanyID;
+
+            string imoDigits = new string((vessel.IMO_Number ?? "").Where(char.IsDigit).ToArray());
+
+            if (string.IsNullOrWhiteSpace(vessel.IMO_Number))
+                missing.Add("IMO Number");
+            else if (imoDigits.Length != 7)
+                missing.Add("IMO Number (must be exactly 7 digits)");
+
+            if (string.IsNullOrWhiteSpace(vessel.VesselName))
+                missing.Add("Vessel Name");
+
+            if (vessel.CompanyID is null or <= 0)
+                missing.Add("Company Name");
+
+            if (missing.Count > 0)
             {
-                TempData["Error"] = "IMO Number and Vessel Name are required (data is saved/keyed by IMO).";
-                return RedirectToAction(nameof(Register), new { imo = vessel.IMO_Number, returnUrl });
+                ViewBag.Types = _repo.GetVesselTypes().ToList();
+                ViewBag.Companies = _repo.GetCompanyNameList().ToList();   // dropdown only — no fleet aggregate needed
+                ViewBag.ReturnUrl = Url.IsLocalUrl(returnUrl) ? returnUrl : null;
+                ViewBag.MissingFields = missing;      // drives the red field highlighting
+                ViewBag.TypedCompanyName = companyName;
+                TempData["Error"] = "The vessel was NOT saved. Please complete: " + string.Join(", ", missing) + ".";
+                return View(vessel);
             }
+
             vessel.IMO_Number = vessel.IMO_Number.Trim();
             string trimVesssel = vessel.VesselName.Replace(" ", "");
             string Vesseldotedname = vessel.VesselName.Replace(" ", ".");
@@ -191,10 +232,16 @@ namespace ShippingManagement.Web.Controllers
         public CompaniesController(ShippingRepository repo, ExportService export)
         { _repo = repo; _export = export; }
 
-        public IActionResult Index(string? q, bool regularOnly = false)
+        public IActionResult Index(string? q, bool regularOnly = false, int page = 1, int pageSize = 50)
         {
             ViewBag.Q = q; ViewBag.RegularOnly = regularOnly;
-            return View(_repo.GetAllCompanies(string.IsNullOrWhiteSpace(q) ? null : q, regularOnly).ToList());
+            // Paged: only one screen of companies is fetched, and fleet counts are
+            // computed for those rows only (was: aggregate over ALL vessels, every load).
+            var (rows, total) = _repo.GetCompaniesPaged(
+                string.IsNullOrWhiteSpace(q) ? null : q, regularOnly, page, pageSize);
+            ViewBag.Page = page; ViewBag.PageSize = pageSize; ViewBag.Total = total;
+            ViewBag.TotalPages = (int)Math.Ceiling(total / (double)pageSize);
+            return View(rows);
         }
 
         public IActionResult Details(int id)
@@ -226,6 +273,67 @@ namespace ShippingManagement.Web.Controllers
                 return Json(new { ok = false, message = "Company Name is required." });
             var id = _repo.SaveCompany(company);
             return Json(new { ok = true, companyId = id, companyName = company.CompanyName });
+        }
+
+        /// <summary>
+        /// Delete a company that was added by mistake or is no longer needed.
+        /// Protected on three levels:
+        ///   1. [RequireAdmin] — the global session filter rejects non-Admin roles
+        ///      outright, so the action is unreachable for a normal user even by URL.
+        ///   2. The Admin must re-enter their own login password to confirm.
+        ///   3. A company that still owns vessels is refused unless the Admin
+        ///      explicitly opts to unlink the fleet first (the vessels are kept).
+        /// </summary>
+        [HttpPost, RequireAdmin, ValidateAntiForgeryToken]
+        public IActionResult Delete(int id, string? adminPassword, bool unlinkVessels = false,
+                                    string? returnTo = null)
+        {
+            string Back() => returnTo ?? Url.Action(nameof(Index))!;
+
+            var company = _repo.GetCompanyByID(id);
+            if (company is null)
+            {
+                TempData["Error"] = "That company no longer exists (already deleted?).";
+                return Redirect(Back());
+            }
+
+            // ── Confirm the Administrator's own password ──
+            var username = HttpContext.Session.GetString(SessionKeys.Username) ?? "";
+            var admin = _repo.GetUserByUsername(username);
+            if (admin is null || admin.Role != "Admin")
+            {
+                TempData["Error"] = "Only an Administrator can delete a company.";
+                return Redirect(Back());
+            }
+            if (string.IsNullOrEmpty(adminPassword) ||
+                !PasswordHasher.Verify(adminPassword, admin.PasswordHash))
+            {
+                TempData["Error"] = $"Incorrect password — '{company.CompanyName}' was NOT deleted.";
+                return Redirect(Back());
+            }
+
+            // ── Fleet guard ──
+            int fleet = _repo.GetCompanyVesselCount(id);
+            if (fleet > 0 && !unlinkVessels)
+            {
+                TempData["Error"] =
+                    $"'{company.CompanyName}' still has {fleet} vessel(s) registered to it. " +
+                    "Re-open the delete dialog and tick \"Also unlink its vessels\" to confirm — " +
+                    "the vessels are kept, only their company link is cleared.";
+                return Redirect(Back());
+            }
+
+            try
+            {
+                int unlinked = _repo.DeleteCompany(id, unlinkVessels);
+                TempData["Ok"] = $"Company '{company.CompanyName}' deleted." +
+                                 (unlinked > 0 ? $" {unlinked} vessel(s) were unlinked and kept." : "");
+            }
+            catch (Exception ex)
+            {
+                TempData["Error"] = $"Could not delete '{company.CompanyName}': {ex.Message}";
+            }
+            return Redirect(Back());
         }
 
         /// <summary>V2: Status button beside each company — Regular / Non-Regular toggle.</summary>
@@ -279,10 +387,14 @@ namespace ShippingManagement.Web.Controllers
         public IActionResult Index()
         {
             var companies = _repo.GetAllCompanies(regularOnly: true).ToList();
-            var details = companies.ToDictionary(
+            // One query for ALL regular customers' vessels, grouped in memory.
+            // Was: one database round trip PER company (N+1) — the main cost of this page.
+            var byCompany = _repo.GetVesselsOfRegularCompanies()
+                                 .GroupBy(v => v.CompanyID ?? 0)
+                                 .ToDictionary(g => g.Key, g => g.ToList());
+            ViewBag.Vessels = companies.ToDictionary(
                 c => c.CompanyID,
-                c => _repo.GetVesselsByCompany(c.CompanyID).ToList());
-            ViewBag.Vessels = details;
+                c => byCompany.TryGetValue(c.CompanyID, out var list) ? list : new List<Vessel>());
             // recent arrivals for regular customers
             ViewBag.RecentArrivals = _repo.GetArrivals(null, null, regularOnly: true)
                                           .OrderByDescending(a => a.ArrivalDate).Take(100).ToList();

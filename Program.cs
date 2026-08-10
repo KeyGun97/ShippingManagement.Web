@@ -1,8 +1,23 @@
+using System.Globalization;
 using Dapper;
 using Microsoft.Data.SqlClient;
 using ShippingManagement.Web.Data;
 using ShippingManagement.Web.Infrastructure;
 using ShippingManagement.Web.Services;
+
+// ── DATE-BINDING FIX (Daily Report / Import Data filters) ────────────────────
+// <input type="date"> ALWAYS submits ISO "yyyy-MM-dd", but MVC model binding
+// parses DateTime? using the SERVER's current culture. On a Windows host whose
+// regional short-date format is not ISO (dd/MM/yyyy, dd-MM-yy, a custom format…)
+// the bind silently fails: the action parameter stays null and the controller
+// falls back to DateTime.Today. That is exactly the reported symptom — "pick a
+// date range, press Show Report, always get today's rows".
+// Pinning the process to the invariant culture makes date parsing deterministic
+// on every machine the app is deployed to.
+CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
+CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
+CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
+CultureInfo.CurrentUICulture = CultureInfo.InvariantCulture;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -10,6 +25,18 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllersWithViews(options =>
 {
     options.Filters.Add<SessionAuthorizeFilter>();
+
+    // .NET 8 caps bound collections at 1024 items by default. "Save Filtered to
+    // History" posts one selectedIds field per checked row (a full day can be 1400+),
+    // so raise the cap or model binding throws before the action runs.
+    options.MaxModelBindingCollectionSize = 100_000;
+});
+
+// A form with >1024 fields is rejected during form parsing (ValueCountLimit = 1024)
+// before model binding — the same "Save Filtered" post trips this first. Raise it too.
+builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
+{
+    o.ValueCountLimit = 100_000;
 });
 
 // Server-side session (sliding expiry, HttpOnly cookie).
@@ -27,6 +54,7 @@ builder.Services.AddHttpContextAccessor();
 
 builder.Services.AddSingleton<ShippingRepository>();
 builder.Services.AddSingleton<ExportService>();
+builder.Services.AddSingleton<ScrapeProgressService>();  // live "Fetch Data" progress/ETA
 builder.Services.AddSingleton<ScraperService>();
 builder.Services.AddSingleton<EmailService>();
 

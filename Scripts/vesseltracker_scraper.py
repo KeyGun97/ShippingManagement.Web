@@ -116,7 +116,8 @@ VT_EMAIL = "operations@worldshipchandler.com"#os.getenv("VT_EMAIL")
 VT_PASSWORD ="Wsc@786." #os.getenv("VT_PASSWORD")
 
 LOGIN_URL = "https://cockpit.vesseltracker.com/"
-HEADLESS = "--headless" in sys.argv          # default: headed (visible), so you can watch it live
+HEADLESS = ("--headless" in sys.argv          # default: headed (visible), so you can watch it live
+            or os.environ.get("SCRAPER_FORCE_HEADLESS", "").strip().lower() in ("1", "true", "yes"))
 LIMIT = None
 WORKERS = None                               # concurrent tabs; overrides config "maxWorkers"
 _CLI_NAV_TIMEOUT = None                       # per-attempt navigation timeout (ms) from CLI
@@ -144,15 +145,24 @@ GRID_STABLE_CHECKS = 5          # WAIT+ was 3 — require 5 consecutive equal ro
                                 # so a half-rendered grid can't pass as "ready"
 GRID_STABLE_INTERVAL_S = 0.6
 GRID_MAX_WAIT_S = 90            # WAIT+ was 60 — ceiling for waiting on a slow table
+ZERO_STABLE_CHECKS = 10         # SPEED: ~6s of a consistently EMPTY grid = the port
+                                # really is quiet — accept it instead of waiting the
+                                # full GRID_MAX_WAIT_S ceiling (90s!) on every empty port
 
 # WAIT+ Fixed delay after opening each port page, giving the slow site time to
 # render before we start polling the grid (was a hardcoded 800ms). Overridable
 # per run with "pageSettleMs" in the config JSON — no code edit needed to tune.
-PAGE_SETTLE_MS = 5_000
+# SPEED: lowered 5000 → 2500 — the grid-readiness polling that follows already
+# waits for the table to settle, so most of the fixed delay was double-counted.
+PAGE_SETTLE_MS = 2_500
 
 # WAIT+ How long to wait for a hash-route change to actually swap the grid
 # content (was ~8s). The site can take a while to re-render between ports.
 SPA_SWAP_WAIT_S = 20
+# SPEED: when the PREVIOUS grid was empty ("0|" fingerprint), an empty→empty
+# swap can never be detected by fingerprint change, so the full 20s always
+# burned between consecutive quiet ports. Cap that case much lower.
+SPA_SWAP_WAIT_EMPTY_S = 6
 
 EXPECTED_HEADERS = ["name", "country", "type", "eta", "received via", "owner", "operator", "manager"]
 
@@ -160,6 +170,46 @@ EXPECTED_HEADERS = ["name", "country", "type", "eta", "received via", "owner", "
 def log(msg: str):
     """Write a line to the run's .log file (in the ScraperData folder)."""
     logger.info(msg)
+
+
+# --------------------------------------------------------------------------
+# Progress sidecar — the web app's "Fetch Data" loading overlay polls
+# output_vesseltracker.progress.json for a live percentage + ETA. Rewritten
+# whenever a port finishes. Best-effort: it must never break the scrape.
+# (asyncio is single-threaded, so no lock is needed here.)
+# --------------------------------------------------------------------------
+_PROGRESS_PATH = OUTPUT_PATH.with_suffix(".progress.json")
+_PROGRESS_DONE = 0
+_PROGRESS_TOTAL = 0
+_PROGRESS_ROWS = 0     # vessels collected so far — shown live in the overlay
+
+
+def _progress_write(phase: str):
+    try:
+        import time as _t
+        _PROGRESS_PATH.write_text(json.dumps({
+            "done": _PROGRESS_DONE,
+            "total": _PROGRESS_TOTAL,
+            "rows": _PROGRESS_ROWS,
+            "phase": phase,
+            "ts": _t.time(),
+        }), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _progress_init(total: int, phase: str = "logging in"):
+    global _PROGRESS_DONE, _PROGRESS_TOTAL, _PROGRESS_ROWS
+    _PROGRESS_DONE, _PROGRESS_TOTAL, _PROGRESS_ROWS = 0, max(0, int(total)), 0
+    _progress_write(phase)
+
+
+def _progress_tick(port_name: str = "", rows: int = 0):
+    global _PROGRESS_DONE, _PROGRESS_ROWS
+    _PROGRESS_DONE += 1
+    _PROGRESS_ROWS += max(0, rows)
+    _progress_write(f"scraped {port_name}".strip() if port_name
+                    else f"{_PROGRESS_DONE}/{_PROGRESS_TOTAL}")
 
 
 # --------------------------------------------------------------------------
@@ -452,9 +502,29 @@ async def _row_count(page: Page) -> int:
     return 0
 
 
+async def _no_data_marker(page: Page) -> bool:
+    """True when the page explicitly says the grid is empty ("No data",
+    "No results", "No vessels", "No records"). Lets us stop waiting on a
+    quiet port in ~1s instead of burning the whole grid-wait ceiling."""
+    try:
+        return await page.evaluate(
+            """() => /\\bno\\s+(data|results?|records?|vessels?|entries)\\b/i
+                       .test(document.body ? document.body.innerText : '')"""
+        )
+    except Exception:
+        return False
+
+
 async def wait_for_grid_ready(page: Page, max_wait_s: float | None = None):
-    """Poll row count until it stabilizes for GRID_STABLE_CHECKS consecutive reads."""
+    """Poll row count until it stabilizes for GRID_STABLE_CHECKS consecutive reads.
+
+    SPEED FIX: an EMPTY port used to spin here for the full ceiling (90s!) and
+    then trigger the reload retry — one quiet port cost 4–5 minutes. Now:
+      • a visible "no data/results" marker ends the wait immediately, and
+      • a row count that stays at ZERO for ZERO_STABLE_CHECKS consecutive
+        reads (~6s) is accepted as a genuinely empty, settled grid."""
     stable = 0
+    zero_stable = 0
     last = -1
     elapsed = 0.0
     max_wait_s = max_wait_s or GRID_MAX_WAIT_S
@@ -464,9 +534,17 @@ async def wait_for_grid_ready(page: Page, max_wait_s: float | None = None):
             stable += 1
         else:
             stable = 0
+        if n == 0 and last == 0:
+            zero_stable += 1
+        elif n != 0:
+            zero_stable = 0
         last = n
         if stable >= GRID_STABLE_CHECKS:
             return n
+        if zero_stable >= ZERO_STABLE_CHECKS:
+            return 0                          # settled empty grid — don't wait 90s
+        if n == 0 and await _no_data_marker(page):
+            return 0                          # site says it's empty — done
         await asyncio.sleep(GRID_STABLE_INTERVAL_S)
         elapsed += GRID_STABLE_INTERVAL_S
     return last  # give up and use whatever we last saw (may be 0 -> empty port)
@@ -503,9 +581,10 @@ async def _navigate_spa(page: Page, url: str, label: str) -> bool:
     # FULL document load (Angular boots directly at the port route) instead of
     # a same-document hash hop from the PREVIOUS port's view. Hash hops return
     # immediately with the old port's grid still in the DOM, and if the swap
-    # outlasts SPA_SWAP_WAIT_S the old port's vessels get scraped under the
-    # NEW port's name — the "wrong PortName mapping" bug. A full load costs a
-    # few seconds per port but guarantees the grid belongs to THIS port.
+    # outlasts the fingerprint wait the old port's vessels get scraped under
+    # the NEW port's name — the "wrong PortName mapping" bug. A full load
+    # costs a few seconds per port but guarantees the grid belongs to THIS
+    # port.
     try:
         await page.goto("about:blank")
     except Exception:
@@ -518,8 +597,14 @@ async def _navigate_spa(page: Page, url: str, label: str) -> bool:
     # view: poll until the grid fingerprint changes. WAIT+ was ~8s, now up to
     # SPA_SWAP_WAIT_S. A genuinely identical grid (rare) just costs the wait,
     # nothing breaks.
+    # SPEED: when the previous view's grid was EMPTY, an empty→empty swap has
+    # an identical fingerprint, so the change can never be observed — use the
+    # short SPA_SWAP_WAIT_EMPTY_S ceiling instead of burning the full wait
+    # between every pair of consecutive quiet ports.
     if "#" in url and before:
-        for _ in range(int(SPA_SWAP_WAIT_S * 2)):
+        prev_empty = before.startswith("0|")
+        swap_wait = SPA_SWAP_WAIT_EMPTY_S if prev_empty else SPA_SWAP_WAIT_S
+        for _ in range(int(swap_wait * 2)):
             await page.wait_for_timeout(500)
             if await _grid_fingerprint(page) != before:
                 break
@@ -774,6 +859,13 @@ async def scrape_port(page: Page, source: dict, max_days: int):
                 f"Fix this source URL: {url}")
             break
 
+        # SPEED: a page that explicitly shows a "no data / no results" marker is
+        # a genuinely QUIET port, not a cold SPA — the reload retry can only
+        # burn another couple of minutes and still find nothing. Skip it.
+        if await _no_data_marker(page):
+            log(f"   · {port_name}: page reports no expected vessels — accepting empty result.")
+            break
+
         # Zero vessels on the first pass is usually a COLD tab: right after
         # login the Angular SPA is still bootstrapping, so the port view
         # renders empty/stale and extraction finds nothing. (This is exactly
@@ -787,10 +879,12 @@ async def scrape_port(page: Page, source: dict, max_days: int):
         except Exception as e:
             log(f"   ⚠ reload failed for {port_name}: {e}")
             break
-        # WAIT+ was 1200ms; retry pass also gets a 1.5x grid-wait ceiling.
+        # WAIT+ was 1200ms; retry pass gets the standard grid-wait ceiling
+        # (SPEED: was 1.5× = 135s — the zero-stable fast path now bounds empty
+        # grids anyway, so the inflated ceiling only ever hurt).
         await page.wait_for_timeout(PAGE_SETTLE_MS)
         await dismiss_cookie_banner(page)
-        await wait_for_grid_ready(page, max_wait_s=GRID_MAX_WAIT_S * 1.5)
+        await wait_for_grid_ready(page, max_wait_s=GRID_MAX_WAIT_S)
 
     if not vessels:
         # Distinguish "the port page never loaded its data" (Country/UN-Locode
@@ -856,6 +950,7 @@ async def _port_worker(worker_id: int, page: Page, queue: "asyncio.Queue",
             all_records.extend(records)
         log(f"   [{idx}/{total}] {source.get('portName', '?')}: "
             f"{len(records)} kept (tab {worker_id})")
+        _progress_tick(source.get("portName") or "", rows=len(records))
 
 
 async def main():
@@ -867,6 +962,7 @@ async def main():
     # (slow, credentialed) browser login entirely.
     if not sources:
         log("No VesselTracker sources in config — nothing to do.")
+        _progress_init(0, phase="idle")
         OUTPUT_PATH.write_text("[]", encoding="utf-8")
         return
 
@@ -881,14 +977,19 @@ async def main():
     NAV_TIMEOUT_MS = _CLI_NAV_TIMEOUT or int(config.get("navTimeoutMs", NAV_TIMEOUT_MS) or NAV_TIMEOUT_MS)
     PAGE_SETTLE_MS = int(config.get("pageSettleMs", PAGE_SETTLE_MS) or PAGE_SETTLE_MS)
 
-    # Concurrency: FIXED at ONE tab — ports are scraped strictly one at a time
-    # in a single browser window/tab (config "maxWorkers" and --workers= are
-    # intentionally ignored so nothing can raise this again).
-    workers = 1
+    # Concurrency: honors config "maxWorkers" (written from appsettings.json →
+    # Scraper:VesselTrackerWorkers), capped at 4 tabs. All tabs share ONE
+    # logged-in browser context (login happens once); each tab has its own
+    # Page with its own about:blank cold-load guard and grid fingerprinting,
+    # so the per-tab SPA race fixes apply to every worker independently.
+    # Set Scraper:VesselTrackerWorkers to 1 to restore strictly sequential
+    # scraping if the site ever misbehaves under parallel tabs.
+    workers = max(1, min(4, int(config.get("maxWorkers", 1) or 1)))
 
     log(f"Loaded {len(sources)} ports from config (maxDays={max_days}).")
     log(f"Running {'HEADLESS' if HEADLESS else 'HEADED (visible browser)'} "
         f"with {workers} concurrent tab(s).")
+    _progress_init(len(sources), phase="signing in to VesselTracker")
 
     all_records: list = []
 
@@ -921,6 +1022,25 @@ async def main():
         await context.add_init_script(
             "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
         )
+
+        # SPEED: the cockpit renders a live map on every port view — tiles,
+        # images, fonts and analytics are pure wasted bandwidth/CPU for a
+        # table scrape. Abort them at the network layer (the Angular app and
+        # its grid are HTML/JS/CSS and keep working fine).
+        _BLOCKED_TYPES = {"image", "media", "font"}
+        _BLOCKED_HOSTS = ("tile.", "tiles.", "maps.googleapis", "openstreetmap",
+                          "google-analytics", "googletagmanager", "doubleclick",
+                          "facebook.", "hotjar", "clarity.ms")
+
+        async def _block_heavy(route):
+            req = route.request
+            if req.resource_type in _BLOCKED_TYPES or \
+               any(h in req.url for h in _BLOCKED_HOSTS):
+                await route.abort()
+            else:
+                await route.continue_()
+
+        await context.route("**/*", _block_heavy)
         login_page = await context.new_page()
 
         try:

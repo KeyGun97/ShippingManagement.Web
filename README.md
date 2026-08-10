@@ -1,4 +1,4 @@
-# Shipping Management System — Web Edition (V2)
+# World Ship Chandler — Web Edition (V2)
 
 ASP.NET Core 8 MVC + Razor + Dapper + MS SQL Server rebuild of the original WinForms
 application, implementing the **V2 requirement document** in full.

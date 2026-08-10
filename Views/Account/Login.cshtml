@@ -1,164 +1,319 @@
 @{ ViewData["Title"] = "Sign in"; Layout = "_Layout"; }
 
-<div class="login-bg">
+<div class="lg-page">
+    <div class="lg-panel">
 
-    <!-- Animated ambient particles -->
-    <div class="login-particles" aria-hidden="true">
-        @for (int i = 0; i < 14; i++) { <span></span> }
-    </div>
+        <!-- ═══════════ LEFT · HERO ═══════════ -->
+        <div class="lg-hero">
+            <div class="lg-hero-media" aria-hidden="true"></div>
+            <div class="lg-hero-overlay" aria-hidden="true"></div>
 
-    <div class="login-shell">
+            <!-- World-map dots + route arcs (also the fallback scene when no photo is present) -->
+            <svg class="lg-hero-map" viewBox="0 0 760 420" preserveAspectRatio="xMidYMin slice" aria-hidden="true">
+                <defs>
+                    <radialGradient id="lgNode" cx="50%" cy="50%" r="50%">
+                        <stop offset="0" stop-color="#ffffff" stop-opacity=".95"/>
+                        <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+                    </radialGradient>
+                </defs>
+                <g class="lg-map-dots" fill="#ffffff" opacity=".35">
+                    <!-- pseudo world-map dot field -->
+                    <g id="dotsRow">
+                        <circle cx="120" cy="60" r="1.4"/><circle cx="140" cy="55" r="1.4"/><circle cx="160" cy="62" r="1.4"/>
+                        <circle cx="185" cy="50" r="1.4"/><circle cx="205" cy="58" r="1.4"/><circle cx="230" cy="66" r="1.4"/>
+                        <circle cx="255" cy="52" r="1.4"/><circle cx="280" cy="60" r="1.4"/><circle cx="310" cy="48" r="1.4"/>
+                        <circle cx="340" cy="58" r="1.4"/><circle cx="365" cy="70" r="1.4"/><circle cx="395" cy="55" r="1.4"/>
+                        <circle cx="425" cy="64" r="1.4"/><circle cx="455" cy="50" r="1.4"/><circle cx="485" cy="60" r="1.4"/>
+                        <circle cx="515" cy="70" r="1.4"/><circle cx="545" cy="56" r="1.4"/><circle cx="575" cy="66" r="1.4"/>
+                        <circle cx="130" cy="90" r="1.4"/><circle cx="165" cy="96" r="1.4"/><circle cx="200" cy="86" r="1.4"/>
+                        <circle cx="240" cy="94" r="1.4"/><circle cx="285" cy="88" r="1.4"/><circle cx="330" cy="98" r="1.4"/>
+                        <circle cx="375" cy="90" r="1.4"/><circle cx="420" cy="100" r="1.4"/><circle cx="465" cy="88" r="1.4"/>
+                        <circle cx="510" cy="96" r="1.4"/><circle cx="555" cy="90" r="1.4"/><circle cx="600" cy="98" r="1.4"/>
+                        <circle cx="150" cy="126" r="1.4"/><circle cx="195" cy="132" r="1.4"/><circle cx="245" cy="122" r="1.4"/>
+                        <circle cx="295" cy="130" r="1.4"/><circle cx="350" cy="124" r="1.4"/><circle cx="405" cy="134" r="1.4"/>
+                        <circle cx="460" cy="126" r="1.4"/><circle cx="515" cy="132" r="1.4"/><circle cx="570" cy="124" r="1.4"/>
+                        <circle cx="620" cy="132" r="1.4"/><circle cx="660" cy="120" r="1.4"/><circle cx="690" cy="128" r="1.4"/>
+                    </g>
+                </g>
+                <!-- route arcs -->
+                <g fill="none" stroke="#9cc4ff" stroke-width="1.1" opacity=".55">
+                    <path class="lg-arc" d="M140 150 Q 260 40 380 120"/>
+                    <path class="lg-arc" d="M380 120 Q 470 60 590 110"/>
+                    <path class="lg-arc" d="M220 200 Q 340 110 520 170"/>
+                </g>
+                <!-- route nodes -->
+                <g>
+                    <circle cx="140" cy="150" r="10" fill="url(#lgNode)"/><circle cx="140" cy="150" r="2.4" fill="#fff"/>
+                    <circle cx="380" cy="120" r="10" fill="url(#lgNode)"/><circle cx="380" cy="120" r="2.4" fill="#fff"/>
+                    <circle cx="590" cy="110" r="10" fill="url(#lgNode)"/><circle cx="590" cy="110" r="2.4" fill="#fff"/>
+                    <circle cx="220" cy="200" r="10" fill="url(#lgNode)"/><circle cx="220" cy="200" r="2.4" fill="#fff"/>
+                    <circle cx="520" cy="170" r="10" fill="url(#lgNode)"/><circle cx="520" cy="170" r="2.4" fill="#fff"/>
+                </g>
+            </svg>
 
-        <!-- ── Brand / story panel ── -->
-        <div class="login-brand">
-            <div class="radar" aria-hidden="true"></div>
-            <div class="sonar" aria-hidden="true">
-                <span class="ring"></span><span class="ring"></span><span class="ring"></span>
-                <span class="core"></span>
+            <!-- Dusk harbor wallpaper · shown when no photo is present -->
+            <svg class="lg-hero-scene" viewBox="0 0 800 1100" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+                <defs>
+                    <linearGradient id="scSky" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0"   stop-color="#0d2547"/>
+                        <stop offset=".42" stop-color="#1a3a63"/>
+                        <stop offset=".62" stop-color="#3f567c"/>
+                        <stop offset=".74" stop-color="#a06a4e"/>
+                        <stop offset=".80" stop-color="#d98d55"/>
+                    </linearGradient>
+                    <linearGradient id="scSea" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0"   stop-color="#28405e"/>
+                        <stop offset=".25" stop-color="#152a45"/>
+                        <stop offset="1"   stop-color="#081627"/>
+                    </linearGradient>
+                    <radialGradient id="scSun" cx="50%" cy="50%" r="50%">
+                        <stop offset="0" stop-color="#ffd9a0" stop-opacity=".9"/>
+                        <stop offset=".5" stop-color="#f0a35e" stop-opacity=".45"/>
+                        <stop offset="1" stop-color="#f0a35e" stop-opacity="0"/>
+                    </radialGradient>
+                    <linearGradient id="scHull" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0" stop-color="#243447"/>
+                        <stop offset="1" stop-color="#0d1b2c"/>
+                    </linearGradient>
+                </defs>
+
+                <!-- sky + sun glow -->
+                <rect x="0" y="0" width="800" height="880" fill="url(#scSky)"/>
+                <ellipse cx="560" cy="860" rx="330" ry="150" fill="url(#scSun)"/>
+
+                <!-- distant port silhouettes on the horizon -->
+                <g fill="#152436" opacity=".92">
+                    <path d="M40 878 V800 h5 V878 Z M96 878 V800 h5 V878 Z M32 800 h76 v5 h-76 Z M46 806 l22 36 h-6 l-22-36 Z M92 806 l-22 36 h6 l22-36 Z"/>
+                    <path d="M640 878 V788 h5 V878 Z M706 878 V788 h5 V878 Z M630 788 h90 v5 h-90 Z M646 794 l24 42 h-6 l-24-42 Z M700 794 l-24 42 h6 l24-42 Z M720 792 h36 v4 h-36 Z"/>
+                    <rect x="150" y="838" width="8" height="40"/><rect x="176" y="850" width="60" height="28"/>
+                    <rect x="560" y="852" width="46" height="26"/><rect x="590" y="834" width="6" height="44"/>
+                </g>
+                <!-- distant small vessel -->
+                <g opacity=".85">
+                    <path d="M480 872 l6-10 h58 l5 10 Z" fill="#1a2c42"/>
+                    <rect x="522" y="852" width="10" height="12" fill="#1a2c42"/>
+                    <circle cx="527" cy="850" r="1.6" fill="#ffd9a0"/>
+                </g>
+
+                <!-- sea -->
+                <rect x="0" y="878" width="800" height="222" fill="url(#scSea)"/>
+                <!-- sun reflections on water -->
+                <g stroke-linecap="round" opacity=".8">
+                    <line x1="470" y1="892" x2="655" y2="892" stroke="#f2a964" stroke-width="3" opacity=".55"/>
+                    <line x1="500" y1="906" x2="625" y2="906" stroke="#f2a964" stroke-width="2.4" opacity=".4"/>
+                    <line x1="520" y1="922" x2="600" y2="922" stroke="#ffd9a0" stroke-width="2" opacity=".3"/>
+                    <line x1="60"  y1="900" x2="150" y2="900" stroke="#7fa4d0" stroke-width="2" opacity=".22"/>
+                    <line x1="200" y1="930" x2="290" y2="930" stroke="#7fa4d0" stroke-width="2" opacity=".16"/>
+                </g>
+
+                <!-- foreground container ship -->
+                <g>
+                    <!-- containers, stacked -->
+                    <g stroke="#0b1626" stroke-width="1">
+                        <rect x="180" y="806" width="42" height="22" fill="#8e3f33"/>
+                        <rect x="224" y="806" width="42" height="22" fill="#b06a3a"/>
+                        <rect x="268" y="806" width="42" height="22" fill="#39657f"/>
+                        <rect x="312" y="806" width="42" height="22" fill="#8e3f33"/>
+                        <rect x="356" y="806" width="42" height="22" fill="#4a7d6c"/>
+                        <rect x="400" y="806" width="42" height="22" fill="#7a7f88"/>
+                        <rect x="202" y="782" width="42" height="22" fill="#39657f"/>
+                        <rect x="246" y="782" width="42" height="22" fill="#8e3f33"/>
+                        <rect x="290" y="782" width="42" height="22" fill="#b06a3a"/>
+                        <rect x="334" y="782" width="42" height="22" fill="#39657f"/>
+                        <rect x="378" y="782" width="42" height="22" fill="#4a7d6c"/>
+                        <rect x="224" y="758" width="42" height="22" fill="#b06a3a"/>
+                        <rect x="268" y="758" width="42" height="22" fill="#7a7f88"/>
+                        <rect x="312" y="758" width="42" height="22" fill="#8e3f33"/>
+                        <rect x="356" y="758" width="42" height="22" fill="#39657f"/>
+                    </g>
+                    <!-- bridge / superstructure -->
+                    <rect x="452" y="748" width="52" height="82" fill="#d7dde6"/>
+                    <rect x="452" y="748" width="52" height="10" fill="#b9c2cf"/>
+                    <g fill="#39506e">
+                        <rect x="458" y="764" width="8" height="6"/><rect x="470" y="764" width="8" height="6"/><rect x="482" y="764" width="8" height="6"/><rect x="494" y="764" width="6" height="6"/>
+                        <rect x="458" y="778" width="8" height="6"/><rect x="470" y="778" width="8" height="6"/><rect x="482" y="778" width="8" height="6"/>
+                    </g>
+                    <rect x="472" y="732" width="4" height="16" fill="#9aa6b5"/>
+                    <circle cx="474" cy="730" r="2" fill="#ffb057"/>
+                    <!-- hull -->
+                    <path d="M150 830 h372 l26 12 -18 46 H176 l-30-40 Z" fill="url(#scHull)"/>
+                    <path d="M150 830 h372 l26 12 -4 10 H160 Z" fill="#31465f" opacity=".5"/>
+                    <g fill="#ffcf8f" opacity=".9">
+                        <circle cx="196" cy="856" r="1.7"/><circle cx="242" cy="856" r="1.7"/><circle cx="288" cy="856" r="1.7"/>
+                        <circle cx="334" cy="856" r="1.7"/><circle cx="380" cy="856" r="1.7"/><circle cx="426" cy="856" r="1.7"/><circle cx="472" cy="856" r="1.7"/>
+                    </g>
+                    <!-- hull reflection -->
+                    <path d="M190 892 h300 l-14 26 H210 Z" fill="#0a1a2e" opacity=".6"/>
+                    <g stroke="#6f8db2" stroke-width="1.6" opacity=".3" stroke-linecap="round">
+                        <line x1="210" y1="902" x2="300" y2="902"/><line x1="330" y1="912" x2="440" y2="912"/>
+                    </g>
+                </g>
+
+                <!-- foreground tug, bottom right -->
+                <g opacity=".95">
+                    <path d="M600 986 l10-16 h96 l8 16 Z" fill="#101f33"/>
+                    <rect x="640" y="954" width="26" height="18" fill="#16283e"/>
+                    <circle cx="653" cy="951" r="2" fill="#ffd9a0"/>
+                    <line x1="596" y1="996" x2="726" y2="996" stroke="#33507a" stroke-width="2" opacity=".35" stroke-linecap="round"/>
+                </g>
+            </svg>
+
+            <!-- Brand -->
+            <div class="lg-brand">
+                <span class="lg-brand-badge" aria-hidden="true">
+                    <svg viewBox="0 0 64 64" width="26" height="26" fill="none" stroke="#1d5fd6" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="32" cy="16.5" r="5.5"/>
+                        <line x1="32" y1="22" x2="32" y2="49"/>
+                        <path d="M14 34c0 8.5 8 15 18 15s18-6.5 18-15" />
+                        <line x1="10" y1="34" x2="18" y2="34"/>
+                        <line x1="46" y1="34" x2="54" y2="34"/>
+                        <line x1="24" y1="30" x2="40" y2="30"/>
+                    </svg>
+                </span>
+                <span class="lg-brand-text">
+                    <strong>World Ship Chandler</strong>
+                </span>
             </div>
 
-            <div class="brand-copy">
-                <div class="eyebrow up-1">Port &amp; Fleet Operations</div>
-                <h1 class="up-2">Shipping<br>Management System</h1>
-                <p class="up-3">Track vessels, ports and daily arrivals from a single command console.</p>
-                <ul class="login-feats up-4">
-                    <li><i class="bi bi-water"></i> Vessel &amp; company registration</li>
-                    <li><i class="bi bi-robot"></i> Automated port-data import</li>
-                    <li><i class="bi bi-file-earmark-bar-graph"></i> Daily &amp; master reporting</li>
-                </ul>
+            <!-- Headline -->
+            <div class="lg-hero-copy">
+                <h1>
+                    Smarter <span class="accent">Shipping.</span><br>
+                    Better <span class="accent">Operations.</span>
+                </h1>
+                <span class="lg-hero-rule" aria-hidden="true"></span>
+                <p>Manage vessels, cargo, ports and logistics operations efficiently from a single platform.</p>
+            </div>
+
+            <!-- Feature grid -->
+            <div class="lg-feats">
+                <div class="lg-feat">
+                    <span class="lg-feat-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M3 15l2-5h14l2 5-2.2 4H5.2Z"/><path d="M7 10V7h4v3M11 7V4h3v3"/><path d="M2 19c1.5 1 3 1 4.5 0s3-1 4.5 0 3 1 4.5 0 3-1 4.5 0"/>
+                        </svg>
+                    </span>
+                    <div><strong>Vessel &amp; Fleet</strong><span>Real-time vessel tracking and management</span></div>
+                </div>
+                <div class="lg-feat">
+                    <span class="lg-feat-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="5" r="2.2"/><path d="M12 7.2V21"/><path d="M8.5 9.5h7"/><path d="M4 13c0 4.4 3.6 8 8 8s8-3.6 8-8"/><path d="M4 13l-1.8 2M4 13l2.2 1.6M20 13l1.8 2M20 13l-2.2 1.6"/>
+                        </svg>
+                    </span>
+                    <div><strong>Port Operations</strong><span>Streamline port activities and scheduling</span></div>
+                </div>
+                <div class="lg-feat">
+                    <span class="lg-feat-icon" aria-hidden="true"><i class="bi bi-box-seam"></i></span>
+                    <div><strong>Cargo Management</strong><span>Track and manage cargo all in one place</span></div>
+                </div>
+                <div class="lg-feat">
+                    <span class="lg-feat-icon" aria-hidden="true"><i class="bi bi-bar-chart-line-fill"></i></span>
+                    <div><strong>Reports &amp; Analytics</strong><span>Powerful insights for smarter decisions</span></div>
+                </div>
             </div>
         </div>
 
-        <!-- ── Sign-in form ── -->
-        <div class="login-form-panel">
-            <div class="login-card card-body">
-                <div class="text-center mb-4 up-1">
-                    <div class="login-logo mb-3">
-                        <svg class="logo-mark" viewBox="0 0 64 64" width="62" height="62" role="img" aria-label="Shipping Management System logo">
-                            <defs>
-                                <linearGradient id="lmGrad" x1="0" y1="0" x2="1" y2="1">
-                                    <stop offset="0" stop-color="#2bb0fb" />
-                                    <stop offset="1" stop-color="#1ad1a5" />
-                                </linearGradient>
-                                <radialGradient id="lmGloss" cx="34%" cy="28%" r="75%">
-                                    <stop offset="0" stop-color="#ffffff" stop-opacity=".38" />
-                                    <stop offset="1" stop-color="#ffffff" stop-opacity="0" />
-                                </radialGradient>
-                            </defs>
-                            <circle cx="32" cy="32" r="30" fill="url(#lmGrad)" />
-                            <circle cx="32" cy="32" r="30" fill="url(#lmGloss)" />
-                            <circle cx="32" cy="32" r="27" fill="none" stroke="#ffffff" stroke-opacity=".25" stroke-width="1" />
-                            <g class="helm">
-                                <g fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round">
-                                    <circle cx="32" cy="32" r="15.5" stroke-width="3.2" />
-                                    <line x1="32" y1="10" x2="32" y2="54" />
-                                    <line x1="10" y1="32" x2="54" y2="32" />
-                                    <line x1="16.4" y1="16.4" x2="47.6" y2="47.6" />
-                                    <line x1="47.6" y1="16.4" x2="16.4" y2="47.6" />
-                                </g>
-                                <g fill="#ffffff">
-                                    <circle cx="54" cy="32" r="3" /><circle cx="47.6" cy="16.4" r="3" />
-                                    <circle cx="32" cy="10" r="3" /><circle cx="16.4" cy="16.4" r="3" />
-                                    <circle cx="10" cy="32" r="3" /><circle cx="16.4" cy="47.6" r="3" />
-                                    <circle cx="32" cy="54" r="3" /><circle cx="47.6" cy="47.6" r="3" />
-                                    <circle cx="32" cy="32" r="5.4" />
-                                </g>
-                            </g>
-                            <circle cx="32" cy="32" r="2.3" fill="url(#lmGrad)" />
-                        </svg>
-                    </div>
-                    <h4 class="mb-1">Welcome back</h4>
-                    <small class="text-muted">Sign in to start your session</small>
+        <!-- ═══════════ RIGHT · FORM ═══════════ -->
+        <div class="lg-form-side">
+
+            <div class="lg-form-inner">
+
+                <div class="lg-ship-badge" aria-hidden="true">
+                    <svg viewBox="0 0 48 48" width="34" height="34" fill="none" stroke="#2563eb" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M8 30l2.5-7h27L40 30l-3 6H11Z"/>
+                        <path d="M14 23v-6h9v6M23 17v-5h7v5M26.5 12V8h-2"/>
+                        <path d="M6 40c2 1.4 4 1.4 6 0s4-1.4 6 0 4 1.4 6 0 4-1.4 6 0 4 1.4 6 0"/>
+                    </svg>
                 </div>
+
+                <h2 class="lg-title">Welcome back!</h2>
+                <p class="lg-sub">Sign in to access your account</p>
 
                 @if (ViewBag.Error is string err)
                 {
-                    <div class="alert alert-danger py-2 d-flex align-items-center gap-2 mb-3 shake">
+                    <div class="alert alert-danger py-2 d-flex align-items-center gap-2 mb-3 shake" role="alert">
                         <i class="bi bi-exclamation-triangle-fill"></i><span>@err</span>
                     </div>
                 }
 
-                <form method="post" asp-action="Login" id="loginForm">
+                <form method="post" asp-action="Login" id="loginForm" novalidate>
                     @Html.AntiForgeryToken()
                     <input type="hidden" name="returnUrl" value="@ViewBag.ReturnUrl" />
 
-                    <div class="mb-3 up-2">
-                        <label class="form-label">Username</label>
-                        <div class="input-group login-ig">
-                            <span class="input-group-text"><i class="bi bi-person"></i></span>
-                            <input name="username" class="form-control"
-                                   placeholder="Enter your username" autocomplete="username" autofocus required />
-                        </div>
+                    <label class="lg-label" for="username">Username</label>
+                    <div class="lg-input">
+                        <span class="lg-input-icon"><i class="bi bi-person"></i></span>
+                        <input id="username" name="username" class="form-control"
+                               placeholder="Enter your username" autocomplete="username" autofocus required />
                     </div>
 
-                    <div class="mb-2 up-3">
-                        <label class="form-label">Password</label>
-                        <div class="input-group login-ig">
-                            <span class="input-group-text"><i class="bi bi-lock"></i></span>
-                            <input name="password" id="pwd" type="password" class="form-control"
-                                   placeholder="Enter your password" autocomplete="current-password" required />
-                            <span class="input-group-text toggle" id="togglePwd" role="button"
-                                  tabindex="0" aria-label="Show password">
-                                <i class="bi bi-eye" id="pwdIcon"></i>
-                            </span>
-                        </div>
+                    <label class="lg-label" for="pwd">Password</label>
+                    <div class="lg-input">
+                        <span class="lg-input-icon"><i class="bi bi-lock"></i></span>
+                        <input id="pwd" name="password" type="password" class="form-control"
+                               placeholder="Enter your password" autocomplete="current-password" required />
+                        <button class="lg-eye" type="button" id="togglePwd" aria-label="Show password">
+                            <i class="bi bi-eye" id="pwdIcon"></i>
+                        </button>
                     </div>
 
-                    <div class="d-flex justify-content-between align-items-center mb-3 up-3">
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="remember" name="remember" value="true">
-                            <label class="form-check-label small text-muted" for="remember">Remember me</label>
-                        </div>
+                    <div class="lg-row lg-row-end">
+                        <a class="lg-forgot" href="#" id="forgotLink">Forgot password?</a>
+                    </div>
+                    <div class="lg-hint d-none" id="forgotHint" role="status">
+                        <i class="bi bi-info-circle me-1"></i>Contact your system administrator to reset your password.
                     </div>
 
-                    <button class="btn btn-login w-100 up-4" id="loginBtn" type="submit">
-                        <span class="btn-text"><i class="bi bi-box-arrow-in-right me-1"></i> Sign in</span>
+                    <button class="btn lg-btn-primary w-100" id="loginBtn" type="submit">
+                        <span class="btn-text"><i class="bi bi-box-arrow-in-right me-2"></i>Sign in</span>
                         <span class="btn-loading d-none">
-                            <span class="spinner-border me-1" role="status"></span> Signing in…
+                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>Signing in…
                         </span>
                     </button>
+
                 </form>
 
-                <p class="text-center text-muted small mt-4 mb-0 up-4">
-                    <i class="bi bi-shield-lock me-1"></i> Secured session · authorised users only
+                <p class="lg-foot">
+                    <i class="bi bi-shield-check me-1"></i>Secured session <span class="dot">•</span> Authorised users only
                 </p>
             </div>
         </div>
 
-    </div>
-
-    <!-- Animated waves at the bottom -->
-    <div class="login-waves" aria-hidden="true">
-        <svg viewBox="0 0 2880 240" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-            <path class="wave wave-1" d="M0 118.0 L12 119.9 L24 121.7 L36 123.6 L48 125.3 L60 127.0 L72 128.6 L84 130.0 L96 131.4 L108 132.6 L120 133.6 L132 134.4 L144 135.1 L156 135.6 L168 135.9 L180 136.0 L192 135.9 L204 135.6 L216 135.1 L228 134.4 L240 133.6 L252 132.6 L264 131.4 L276 130.0 L288 128.6 L300 127.0 L312 125.3 L324 123.6 L336 121.7 L348 119.9 L360 118.0 L372 116.1 L384 114.3 L396 112.4 L408 110.7 L420 109.0 L432 107.4 L444 106.0 L456 104.6 L468 103.4 L480 102.4 L492 101.6 L504 100.9 L516 100.4 L528 100.1 L540 100.0 L552 100.1 L564 100.4 L576 100.9 L588 101.6 L600 102.4 L612 103.4 L624 104.6 L636 106.0 L648 107.4 L660 109.0 L672 110.7 L684 112.4 L696 114.3 L708 116.1 L720 118.0 L732 119.9 L744 121.7 L756 123.6 L768 125.3 L780 127.0 L792 128.6 L804 130.0 L816 131.4 L828 132.6 L840 133.6 L852 134.4 L864 135.1 L876 135.6 L888 135.9 L900 136.0 L912 135.9 L924 135.6 L936 135.1 L948 134.4 L960 133.6 L972 132.6 L984 131.4 L996 130.0 L1008 128.6 L1020 127.0 L1032 125.3 L1044 123.6 L1056 121.7 L1068 119.9 L1080 118.0 L1092 116.1 L1104 114.3 L1116 112.4 L1128 110.7 L1140 109.0 L1152 107.4 L1164 106.0 L1176 104.6 L1188 103.4 L1200 102.4 L1212 101.6 L1224 100.9 L1236 100.4 L1248 100.1 L1260 100.0 L1272 100.1 L1284 100.4 L1296 100.9 L1308 101.6 L1320 102.4 L1332 103.4 L1344 104.6 L1356 106.0 L1368 107.4 L1380 109.0 L1392 110.7 L1404 112.4 L1416 114.3 L1428 116.1 L1440 118.0 L1452 119.9 L1464 121.7 L1476 123.6 L1488 125.3 L1500 127.0 L1512 128.6 L1524 130.0 L1536 131.4 L1548 132.6 L1560 133.6 L1572 134.4 L1584 135.1 L1596 135.6 L1608 135.9 L1620 136.0 L1632 135.9 L1644 135.6 L1656 135.1 L1668 134.4 L1680 133.6 L1692 132.6 L1704 131.4 L1716 130.0 L1728 128.6 L1740 127.0 L1752 125.3 L1764 123.6 L1776 121.7 L1788 119.9 L1800 118.0 L1812 116.1 L1824 114.3 L1836 112.4 L1848 110.7 L1860 109.0 L1872 107.4 L1884 106.0 L1896 104.6 L1908 103.4 L1920 102.4 L1932 101.6 L1944 100.9 L1956 100.4 L1968 100.1 L1980 100.0 L1992 100.1 L2004 100.4 L2016 100.9 L2028 101.6 L2040 102.4 L2052 103.4 L2064 104.6 L2076 106.0 L2088 107.4 L2100 109.0 L2112 110.7 L2124 112.4 L2136 114.3 L2148 116.1 L2160 118.0 L2172 119.9 L2184 121.7 L2196 123.6 L2208 125.3 L2220 127.0 L2232 128.6 L2244 130.0 L2256 131.4 L2268 132.6 L2280 133.6 L2292 134.4 L2304 135.1 L2316 135.6 L2328 135.9 L2340 136.0 L2352 135.9 L2364 135.6 L2376 135.1 L2388 134.4 L2400 133.6 L2412 132.6 L2424 131.4 L2436 130.0 L2448 128.6 L2460 127.0 L2472 125.3 L2484 123.6 L2496 121.7 L2508 119.9 L2520 118.0 L2532 116.1 L2544 114.3 L2556 112.4 L2568 110.7 L2580 109.0 L2592 107.4 L2604 106.0 L2616 104.6 L2628 103.4 L2640 102.4 L2652 101.6 L2664 100.9 L2676 100.4 L2688 100.1 L2700 100.0 L2712 100.1 L2724 100.4 L2736 100.9 L2748 101.6 L2760 102.4 L2772 103.4 L2784 104.6 L2796 106.0 L2808 107.4 L2820 109.0 L2832 110.7 L2844 112.4 L2856 114.3 L2868 116.1 L2880 118.0 L2880 240 L0 240 Z" />
-            <path class="wave wave-2" d="M0 174.0 L12 173.3 L24 171.6 L36 169.0 L48 165.5 L60 161.4 L72 156.7 L84 151.8 L96 146.8 L108 141.9 L120 137.4 L132 133.4 L144 130.2 L156 127.8 L168 126.4 L180 126.0 L192 126.7 L204 128.4 L216 131.0 L228 134.5 L240 138.6 L252 143.3 L264 148.2 L276 153.2 L288 158.1 L300 162.6 L312 166.6 L324 169.8 L336 172.2 L348 173.6 L360 174.0 L372 173.3 L384 171.6 L396 169.0 L408 165.5 L420 161.4 L432 156.7 L444 151.8 L456 146.8 L468 141.9 L480 137.4 L492 133.4 L504 130.2 L516 127.8 L528 126.4 L540 126.0 L552 126.7 L564 128.4 L576 131.0 L588 134.5 L600 138.6 L612 143.3 L624 148.2 L636 153.2 L648 158.1 L660 162.6 L672 166.6 L684 169.8 L696 172.2 L708 173.6 L720 174.0 L732 173.3 L744 171.6 L756 169.0 L768 165.5 L780 161.4 L792 156.7 L804 151.8 L816 146.8 L828 141.9 L840 137.4 L852 133.4 L864 130.2 L876 127.8 L888 126.4 L900 126.0 L912 126.7 L924 128.4 L936 131.0 L948 134.5 L960 138.6 L972 143.3 L984 148.2 L996 153.2 L1008 158.1 L1020 162.6 L1032 166.6 L1044 169.8 L1056 172.2 L1068 173.6 L1080 174.0 L1092 173.3 L1104 171.6 L1116 169.0 L1128 165.5 L1140 161.4 L1152 156.7 L1164 151.8 L1176 146.8 L1188 141.9 L1200 137.4 L1212 133.4 L1224 130.2 L1236 127.8 L1248 126.4 L1260 126.0 L1272 126.7 L1284 128.4 L1296 131.0 L1308 134.5 L1320 138.6 L1332 143.3 L1344 148.2 L1356 153.2 L1368 158.1 L1380 162.6 L1392 166.6 L1404 169.8 L1416 172.2 L1428 173.6 L1440 174.0 L1452 173.3 L1464 171.6 L1476 169.0 L1488 165.5 L1500 161.4 L1512 156.7 L1524 151.8 L1536 146.8 L1548 141.9 L1560 137.4 L1572 133.4 L1584 130.2 L1596 127.8 L1608 126.4 L1620 126.0 L1632 126.7 L1644 128.4 L1656 131.0 L1668 134.5 L1680 138.6 L1692 143.3 L1704 148.2 L1716 153.2 L1728 158.1 L1740 162.6 L1752 166.6 L1764 169.8 L1776 172.2 L1788 173.6 L1800 174.0 L1812 173.3 L1824 171.6 L1836 169.0 L1848 165.5 L1860 161.4 L1872 156.7 L1884 151.8 L1896 146.8 L1908 141.9 L1920 137.4 L1932 133.4 L1944 130.2 L1956 127.8 L1968 126.4 L1980 126.0 L1992 126.7 L2004 128.4 L2016 131.0 L2028 134.5 L2040 138.6 L2052 143.3 L2064 148.2 L2076 153.2 L2088 158.1 L2100 162.6 L2112 166.6 L2124 169.8 L2136 172.2 L2148 173.6 L2160 174.0 L2172 173.3 L2184 171.6 L2196 169.0 L2208 165.5 L2220 161.4 L2232 156.7 L2244 151.8 L2256 146.8 L2268 141.9 L2280 137.4 L2292 133.4 L2304 130.2 L2316 127.8 L2328 126.4 L2340 126.0 L2352 126.7 L2364 128.4 L2376 131.0 L2388 134.5 L2400 138.6 L2412 143.3 L2424 148.2 L2436 153.2 L2448 158.1 L2460 162.6 L2472 166.6 L2484 169.8 L2496 172.2 L2508 173.6 L2520 174.0 L2532 173.3 L2544 171.6 L2556 169.0 L2568 165.5 L2580 161.4 L2592 156.7 L2604 151.8 L2616 146.8 L2628 141.9 L2640 137.4 L2652 133.4 L2664 130.2 L2676 127.8 L2688 126.4 L2700 126.0 L2712 126.7 L2724 128.4 L2736 131.0 L2748 134.5 L2760 138.6 L2772 143.3 L2784 148.2 L2796 153.2 L2808 158.1 L2820 162.6 L2832 166.6 L2844 169.8 L2856 172.2 L2868 173.6 L2880 174.0 L2880 240 L0 240 Z" />
-            <path class="wave wave-3" d="M0 186.8 L12 183.7 L24 180.6 L36 177.5 L48 174.6 L60 172.0 L72 169.6 L84 167.6 L96 166.0 L108 164.9 L120 164.2 L132 164.0 L144 164.3 L156 165.1 L168 166.3 L180 168.0 L192 170.1 L204 172.5 L216 175.2 L228 178.1 L240 181.2 L252 184.3 L264 187.4 L276 190.5 L288 193.4 L300 196.0 L312 198.4 L324 200.4 L336 202.0 L348 203.1 L360 203.8 L372 204.0 L384 203.7 L396 202.9 L408 201.7 L420 200.0 L432 197.9 L444 195.5 L456 192.8 L468 189.9 L480 186.8 L492 183.7 L504 180.6 L516 177.5 L528 174.6 L540 172.0 L552 169.6 L564 167.6 L576 166.0 L588 164.9 L600 164.2 L612 164.0 L624 164.3 L636 165.1 L648 166.3 L660 168.0 L672 170.1 L684 172.5 L696 175.2 L708 178.1 L720 181.2 L732 184.3 L744 187.4 L756 190.5 L768 193.4 L780 196.0 L792 198.4 L804 200.4 L816 202.0 L828 203.1 L840 203.8 L852 204.0 L864 203.7 L876 202.9 L888 201.7 L900 200.0 L912 197.9 L924 195.5 L936 192.8 L948 189.9 L960 186.8 L972 183.7 L984 180.6 L996 177.5 L1008 174.6 L1020 172.0 L1032 169.6 L1044 167.6 L1056 166.0 L1068 164.9 L1080 164.2 L1092 164.0 L1104 164.3 L1116 165.1 L1128 166.3 L1140 168.0 L1152 170.1 L1164 172.5 L1176 175.2 L1188 178.1 L1200 181.2 L1212 184.3 L1224 187.4 L1236 190.5 L1248 193.4 L1260 196.0 L1272 198.4 L1284 200.4 L1296 202.0 L1308 203.1 L1320 203.8 L1332 204.0 L1344 203.7 L1356 202.9 L1368 201.7 L1380 200.0 L1392 197.9 L1404 195.5 L1416 192.8 L1428 189.9 L1440 186.8 L1452 183.7 L1464 180.6 L1476 177.5 L1488 174.6 L1500 172.0 L1512 169.6 L1524 167.6 L1536 166.0 L1548 164.9 L1560 164.2 L1572 164.0 L1584 164.3 L1596 165.1 L1608 166.3 L1620 168.0 L1632 170.1 L1644 172.5 L1656 175.2 L1668 178.1 L1680 181.2 L1692 184.3 L1704 187.4 L1716 190.5 L1728 193.4 L1740 196.0 L1752 198.4 L1764 200.4 L1776 202.0 L1788 203.1 L1800 203.8 L1812 204.0 L1824 203.7 L1836 202.9 L1848 201.7 L1860 200.0 L1872 197.9 L1884 195.5 L1896 192.8 L1908 189.9 L1920 186.8 L1932 183.7 L1944 180.6 L1956 177.5 L1968 174.6 L1980 172.0 L1992 169.6 L2004 167.6 L2016 166.0 L2028 164.9 L2040 164.2 L2052 164.0 L2064 164.3 L2076 165.1 L2088 166.3 L2100 168.0 L2112 170.1 L2124 172.5 L2136 175.2 L2148 178.1 L2160 181.2 L2172 184.3 L2184 187.4 L2196 190.5 L2208 193.4 L2220 196.0 L2232 198.4 L2244 200.4 L2256 202.0 L2268 203.1 L2280 203.8 L2292 204.0 L2304 203.7 L2316 202.9 L2328 201.7 L2340 200.0 L2352 197.9 L2364 195.5 L2376 192.8 L2388 189.9 L2400 186.8 L2412 183.7 L2424 180.6 L2436 177.5 L2448 174.6 L2460 172.0 L2472 169.6 L2484 167.6 L2496 166.0 L2508 164.9 L2520 164.2 L2532 164.0 L2544 164.3 L2556 165.1 L2568 166.3 L2580 168.0 L2592 170.1 L2604 172.5 L2616 175.2 L2628 178.1 L2640 181.2 L2652 184.3 L2664 187.4 L2676 190.5 L2688 193.4 L2700 196.0 L2712 198.4 L2724 200.4 L2736 202.0 L2748 203.1 L2760 203.8 L2772 204.0 L2784 203.7 L2796 202.9 L2808 201.7 L2820 200.0 L2832 197.9 L2844 195.5 L2856 192.8 L2868 189.9 L2880 186.8 L2880 240 L0 240 Z" />
-        </svg>
     </div>
 </div>
 
 @section Scripts {
 <script>
     (function () {
+        // Password visibility
         const toggle = document.getElementById('togglePwd');
         const pwd = document.getElementById('pwd');
         const icon = document.getElementById('pwdIcon');
-        function flip() {
+        toggle.addEventListener('click', function () {
             const show = pwd.type === 'password';
             pwd.type = show ? 'text' : 'password';
             icon.classList.toggle('bi-eye', !show);
             icon.classList.toggle('bi-eye-slash', show);
             toggle.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
-        }
-        toggle.addEventListener('click', flip);
-        toggle.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } });
+        });
 
+        // Loading state on submit
         document.getElementById('loginForm').addEventListener('submit', function () {
             const btn = document.getElementById('loginBtn');
             btn.disabled = true;
             btn.querySelector('.btn-text').classList.add('d-none');
             btn.querySelector('.btn-loading').classList.remove('d-none');
         });
+
+        // Inline hints for links without backend routes yet
+        function hint(trigger, target) {
+            document.getElementById(trigger).addEventListener('click', function (e) {
+                e.preventDefault();
+                document.getElementById(target).classList.toggle('d-none');
+            });
+        }
+        hint('forgotLink', 'forgotHint');
     })();
 </script>
 }

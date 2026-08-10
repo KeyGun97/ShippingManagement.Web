@@ -1,4 +1,5 @@
 using ShippingManagement.Web.Data;
+using ShippingManagement.Web.Infrastructure;
 using ShippingManagement.Web.Models;
 using System.Diagnostics;
 using System.Numerics;
@@ -20,10 +21,12 @@ namespace ShippingManagement.Web.Services
         private readonly ShippingRepository _repo;
         private readonly IConfiguration _cfg;
         private readonly IWebHostEnvironment _env;
+        private readonly ScrapeProgressService _progress;
         public string name = "";
         public string imoMain = "";
-        public ScraperService(ShippingRepository repo, IConfiguration cfg, IWebHostEnvironment env)
-        { _repo = repo; _cfg = cfg; _env = env; }
+        public ScraperService(ShippingRepository repo, IConfiguration cfg, IWebHostEnvironment env,
+                              ScrapeProgressService progress)
+        { _repo = repo; _cfg = cfg; _env = env; _progress = progress; }
 
         public record ScrapeResult(bool Ok, string Message, int Inserted, int Sources);
 
@@ -64,6 +67,10 @@ namespace ShippingManagement.Web.Services
                 dataDir = Path.Combine(_env.ContentRootPath, dataDir);
             Directory.CreateDirectory(dataDir);
 
+            // Live progress for the Import Data loading overlay: point the tracker
+            // at this run's folder and clear the previous run's sidecar files.
+            _progress.BeginRun(dataDir);
+
             string mstConfigPath = Path.Combine(dataDir, "config_myshiptracking.json");
             string vtConfigPath = Path.Combine(dataDir, "config_vesseltracker.json");
             string mstOutputPath = Path.Combine(dataDir, "output_myshiptracking.json");
@@ -89,13 +96,25 @@ namespace ShippingManagement.Web.Services
             // 2 — launch BOTH scripts in parallel, each writing its own output file.
             //     (Two processes must not write the SAME file at once — that corrupts
             //     it — so we merge their outputs afterwards into one results.json.)
+            _progress.SetPhase($"Scraping {sources.Count} source(s)");
+
+            // ── CPU throttle: ONE Windows Job Object shared by BOTH scraper
+            //    processes hard-caps their COMBINED CPU (python + every Chrome
+            //    child) at Scraper:MaxCpuPercent of total machine CPU (default
+            //    70%), enforced by the kernel, and runs them at BelowNormal
+            //    priority so IIS/SQL Server stay responsive during the scrape.
+            //    Set MaxCpuPercent to 0 or 100 in appsettings.json to disable.
+            int maxCpu = int.TryParse(_cfg["Scraper:MaxCpuPercent"], out var mcp) ? mcp : 70;
+            using var cpuLimiter = ScraperCpuLimiter.Create(maxCpu);
+
             var runs = new List<Task<ScraperRun>>();
             if (mstSources.Count > 0)
                 runs.Add(Task.Run(() => RunScraper("MyShipTracking", python, mstScript!,
-                                                   mstConfigPath, mstOutputPath, timeoutMin)));
+                                                   mstConfigPath, mstOutputPath, timeoutMin, cpuLimiter)));
             if (vtSources.Count > 0)
                 runs.Add(Task.Run(() => RunScraper("VesselTracker", python, vtScript!,
-                                                   vtConfigPath, vtOutputPath, vtTimeoutMin, extraArgs: new[] { "--headless" })));
+                                                   vtConfigPath, vtOutputPath, vtTimeoutMin, cpuLimiter,
+                                                   extraArgs: new[] { "--headless" })));
 
             ScraperRun[] outcomes;
             try { outcomes = Task.WhenAll(runs).GetAwaiter().GetResult(); }
@@ -210,6 +229,7 @@ namespace ShippingManagement.Web.Services
 
             }
 
+            _progress.SetPhase("Importing rows into the database");
             _repo.InsertScrapedRows(records);   // useless IMOs auto-flagged on insert
 
             // ── Per-site outcome summary. Previously a site's failure was ONLY
@@ -302,6 +322,7 @@ namespace ShippingManagement.Web.Services
         /// </summary>
         private ScraperRun RunScraper(string site, string python, string script,
                                       string configPath, string outputPath, int timeoutMin,
+                                      ScraperCpuLimiter cpuLimiter,
                                       string[]? extraArgs = null)
         {
             var psi = new ProcessStartInfo
@@ -324,10 +345,20 @@ namespace ShippingManagement.Web.Services
             foreach (var a in extraArgs ?? Array.Empty<string>())
                 psi.ArgumentList.Add(a);
 
+            // Web-app runs must NEVER pop a visible browser window on the server
+            // (a leftover SCRAPER_HEADFUL=1 from a debugging session would make
+            // all Selenium workers open on-screen as big blank white windows).
+            // This overrides any machine-wide headful setting for THIS process.
+            psi.EnvironmentVariables["SCRAPER_FORCE_HEADLESS"] = "1";
+            psi.EnvironmentVariables["SCRAPER_HEADFUL"] = "0";
+
             string stderr;
             try
             {
                 using var proc = Process.Start(psi)!;
+                // Cap + deprioritise this process (and all its Chrome children)
+                // via the run's shared job object — see LoadData.
+                cpuLimiter.Attach(proc);
                 // Drain both pipes concurrently — sequential ReadToEnd() can deadlock
                 // when one pipe buffer fills.
                 var errTask = proc.StandardError.ReadToEndAsync();

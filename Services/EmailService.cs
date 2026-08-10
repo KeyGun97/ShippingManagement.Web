@@ -70,7 +70,7 @@ namespace ShippingManagement.Web.Services
                         Username = child["Username"],
                         Password = child["Password"],
                         FromAddress = child["FromAddress"] ?? "no-reply@localhost",
-                        FromName = child["FromName"] ?? "Shipping Management System"
+                        FromName = child["FromName"] ?? "World Ship Chandler"
                     });
                 }
             }
@@ -87,7 +87,7 @@ namespace ShippingManagement.Web.Services
                     Username = cfg["Email:Username"],
                     Password = cfg["Email:Password"],
                     FromAddress = cfg["Email:FromAddress"] ?? "no-reply@localhost",
-                    FromName = cfg["Email:FromName"] ?? "Shipping Management System"
+                    FromName = cfg["Email:FromName"] ?? "World Ship Chandler"
                 });
             }
             return list;
@@ -217,7 +217,7 @@ namespace ShippingManagement.Web.Services
         public string? Username { get; set; }
         public string? Password { get; set; }
         public string FromAddress { get; set; } = "no-reply@localhost";
-        public string? FromName { get; set; } = "Shipping Management System";
+        public string? FromName { get; set; } = "World Ship Chandler";
     }
 
     public class EmailMessage

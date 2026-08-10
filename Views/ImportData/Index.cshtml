@@ -11,6 +11,16 @@
     var tokens = Af.GetAndStoreTokens(Context);
 }
 
+@if ((bool?)ViewBag.ScrapeJustFinished == true)
+{
+    @* Arriving from a completed "Fetch Data" run: the browser paints a blank
+       white document between the overlay page and this one. This mask is in
+       the server-rendered HTML, so the very first paint is already dark and
+       then fades to reveal the refreshed data — no white flash. *@
+    <div id="scoReloadMask" aria-hidden="true"></div>
+    <script>setTimeout(function () { var m = document.getElementById('scoReloadMask'); if (m) m.remove(); }, 1100);</script>
+}
+
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h4 class="mb-0"><i class="bi bi-cloud-download"></i> Import Data <span class="text-muted fs-6">@(isAdmin ? "(admin — all rows)" : "(your assigned ports only)")</span></h4>
     <div class="d-flex gap-2">
@@ -72,7 +82,11 @@
     @if (isAdmin)
     {
         <!-- V2 "Load Data": scrape all active Data Source URLs via Scripts/scraper.py and import the JSON -->
-        <form asp-action="LoadData" method="post" id="loadDataForm" onsubmit="return startLoadData(this);">
+        @* Submits via AJAX to LoadDataStart → animated progress overlay polls
+           LoadDataProgress. Falls back to the classic blocking LoadData POST
+           only if JS is disabled. *@
+        <form asp-action="LoadData" method="post" id="loadDataForm" onsubmit="return startLoadData(this);"
+              data-start-url="@Url.Action("LoadDataStart")" data-progress-url="@Url.Action("LoadDataProgress")">
             @Html.AntiForgeryToken()
             <input type="hidden" name="date" id="loadDate" value="@d.ToString("yyyy-MM-dd")" />
             <input type="hidden" id="loadCountry" name="country" value="@country" />
@@ -87,7 +101,10 @@
 <div class="card">
     <div class="card-header d-flex justify-content-between">
         <span>Rows for @d.ToString("yyyy-MM-dd") — <span id="rowCount">@Model.Count</span> record(s)</span>
-        <span class="small text-muted">Blue = regular customer &middot; Red strikethrough = useless &middot; double-click IMO cell to set/correct IMO</span>
+        <span class="small text-muted">
+            Blue = regular customer &middot; Red strikethrough = useless &middot; double-click IMO cell to set/correct IMO
+            &middot; <span class="badge bg-danger">IMO missing</span> / <span class="badge bg-warning text-dark">Company missing</span> rows are blocked from saving
+        </span>
     </div>
     <div class="table-responsive" style="max-height:100vh">
         <table class="table table-sm table-hover align-middle mb-0" id="importTable">
@@ -155,7 +172,30 @@
                         {
                             <td class="small">@(r.AssignedUserName ?? "—")</td>
                         }
-                        <td>@(r.IsMatched? Html.Raw("<span class='badge bg-success'>Yes</span>") : Html.Raw("<span class='badge bg-secondary'>No</span>"))</td>
+                        @{
+                            // A row can only reach the date-wise history when it has an IMO
+                            // AND a registered vessel that is linked to a Company.
+                            bool noImo = string.IsNullOrWhiteSpace(r.IMO_Number);
+                            bool noCompany = r.IsMatched && r.VesselCompanyID is null;
+                        }
+                        <td>
+                            @if (noImo)
+                            {
+                                <span class="badge bg-danger" title="This row has no IMO Number and cannot be saved. Double-click the IMO cell to set it.">IMO missing</span>
+                            }
+                            else if (!r.IsMatched)
+                            {
+                                <span class="badge bg-secondary" title="This IMO is not registered yet — click it to open the Vessel Registration form.">Not registered</span>
+                            }
+                            else if (noCompany)
+                            {
+                                <span class="badge bg-warning text-dark" title="The vessel is registered but has no Company linked — open it and set the Company Name.">Company missing</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-success">Yes</span>
+                            }
+                        </td>
                         <td>@(r.IsSaved? Html.Raw("<span class='badge bg-primary'>Saved</span>") : Html.Raw("<span class='badge bg-light text-dark border'>Pending</span>"))</td>
                         <td>
                             <button class="btn btn-sm py-0 useless-btn @(r.IsUseless ? "btn-danger" : "btn-outline-danger")"
@@ -177,6 +217,153 @@
         </table>
     </div>
 </div>
+
+@* ═══════════ "Fetch Data" progress overlay — dusk-harbor theme (matches the
+     login hero scene): dotted world map + drifting route arcs up top, a sea
+     band below, and the login screen's container ship sailing from the origin
+     port to the destination anchor as the real scrape percentage climbs. ═══ *@
+<div id="scrapeOverlay" class="sco d-none" role="alertdialog" aria-live="polite" aria-label="Fetching data">
+    <div class="sco-card">
+
+        <div class="sco-head">
+            <span class="sco-badge" aria-hidden="true">
+                <svg viewBox="0 0 64 64" width="20" height="20" fill="none" stroke="#1d5fd6" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="32" cy="16.5" r="5.5"/><line x1="32" y1="22" x2="32" y2="49"/>
+                    <path d="M14 34c0 8.5 8 15 18 15s18-6.5 18-15"/>
+                    <line x1="10" y1="34" x2="18" y2="34"/><line x1="46" y1="34" x2="54" y2="34"/><line x1="24" y1="30" x2="40" y2="30"/>
+                </svg>
+            </span>
+            <div>
+                <div class="sco-title">Fetching vessel data</div>
+                <div class="sco-sub" id="scoPhase">Preparing scrape…</div>
+            </div>
+            <div class="sco-pct" id="scoPct">0<small>%</small></div>
+        </div>
+
+        <!-- ── Voyage scene ── -->
+        <div class="sco-voyage" aria-hidden="true">
+            <!-- world-map dots + drifting route arcs (same motif as the login hero) -->
+            <svg class="sco-map" viewBox="0 0 560 120" preserveAspectRatio="xMidYMid slice">
+                <g fill="#ffffff" opacity=".28">
+                    <circle cx="40" cy="24" r="1.3"/><circle cx="70" cy="18" r="1.3"/><circle cx="104" cy="28" r="1.3"/>
+                    <circle cx="140" cy="16" r="1.3"/><circle cx="176" cy="26" r="1.3"/><circle cx="214" cy="20" r="1.3"/>
+                    <circle cx="252" cy="30" r="1.3"/><circle cx="292" cy="18" r="1.3"/><circle cx="330" cy="26" r="1.3"/>
+                    <circle cx="368" cy="16" r="1.3"/><circle cx="406" cy="28" r="1.3"/><circle cx="446" cy="20" r="1.3"/>
+                    <circle cx="486" cy="28" r="1.3"/><circle cx="522" cy="18" r="1.3"/>
+                    <circle cx="56" cy="52" r="1.3"/><circle cx="96" cy="58" r="1.3"/><circle cx="138" cy="48" r="1.3"/>
+                    <circle cx="184" cy="56" r="1.3"/><circle cx="230" cy="50" r="1.3"/><circle cx="278" cy="58" r="1.3"/>
+                    <circle cx="326" cy="50" r="1.3"/><circle cx="374" cy="60" r="1.3"/><circle cx="422" cy="52" r="1.3"/>
+                    <circle cx="470" cy="58" r="1.3"/><circle cx="514" cy="50" r="1.3"/>
+                </g>
+                <g fill="none" stroke="#9cc4ff" stroke-width="1.1" opacity=".5">
+                    <path class="sco-arc" d="M30 96 Q 160 30 300 74"/>
+                    <path class="sco-arc" d="M300 74 Q 400 40 530 82"/>
+                </g>
+                <g>
+                    <circle cx="30" cy="96" r="2.2" fill="#fff"/><circle cx="300" cy="74" r="2.2" fill="#fff"/><circle cx="530" cy="82" r="2.2" fill="#fff"/>
+                </g>
+            </svg>
+
+            <!-- sun glow low on the horizon -->
+            <div class="sco-sun"></div>
+
+            <!-- origin port (cranes) · destination (anchor) -->
+            <svg class="sco-port sco-port-a" viewBox="0 0 60 44">
+                <g fill="#152436">
+                    <path d="M6 44 V16 h3 V44 Z M34 44 V16 h3 V44 Z M2 16 h39 v3 h-39 Z M10 20 l12 20 h-4 l-12 -20 Z M32 20 l-12 20 h4 l12 -20 Z"/>
+                    <rect x="44" y="30" width="14" height="14"/>
+                </g>
+            </svg>
+            <svg class="sco-port sco-port-b" viewBox="0 0 44 44">
+                <circle cx="22" cy="22" r="20" fill="none" stroke="#9cc4ff" stroke-width="2" opacity=".7"/>
+                <g fill="none" stroke="#dce9ff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="22" cy="12.5" r="3.4"/><line x1="22" y1="16" x2="22" y2="33"/>
+                    <path d="M11 24c0 5.4 5 9.5 11 9.5s11-4.1 11-9.5"/>
+                    <line x1="8" y1="24" x2="13" y2="24"/><line x1="31" y1="24" x2="36" y2="24"/><line x1="17" y1="20.5" x2="27" y2="20.5"/>
+                </g>
+            </svg>
+
+            <!-- route: dashed track + glowing fill = the progress bar -->
+            <div class="sco-route">
+                <div class="sco-route-fill" id="scoRouteFill"></div>
+            </div>
+
+            <!-- the ship (mini of the login hero's container ship), sails with % -->
+            <div class="sco-lane">
+                <div class="sco-ship-slot" id="scoShipSlot">
+                <div class="sco-wake"></div>
+                <svg class="sco-ship" viewBox="0 0 120 54">
+                    <defs>
+                        <linearGradient id="scoHull" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0" stop-color="#243447"/><stop offset="1" stop-color="#0d1b2c"/>
+                        </linearGradient>
+                    </defs>
+                    <g stroke="#0b1626" stroke-width=".8">
+                        <rect x="14" y="18" width="15" height="8" fill="#8e3f33"/><rect x="30" y="18" width="15" height="8" fill="#b06a3a"/>
+                        <rect x="46" y="18" width="15" height="8" fill="#39657f"/><rect x="62" y="18" width="15" height="8" fill="#4a7d6c"/>
+                        <rect x="22" y="9"  width="15" height="8" fill="#39657f"/><rect x="38" y="9"  width="15" height="8" fill="#8e3f33"/>
+                        <rect x="54" y="9"  width="15" height="8" fill="#b06a3a"/>
+                    </g>
+                    <rect x="82" y="6" width="16" height="22" fill="#d7dde6"/>
+                    <rect x="82" y="6" width="16" height="4" fill="#b9c2cf"/>
+                    <g fill="#39506e"><rect x="85" y="13" width="3.4" height="2.6"/><rect x="90" y="13" width="3.4" height="2.6"/><rect x="85" y="18" width="3.4" height="2.6"/><rect x="90" y="18" width="3.4" height="2.6"/></g>
+                    <rect x="89" y="0" width="1.6" height="6" fill="#9aa6b5"/><circle cx="89.8" cy="-0.4" r="1.4" fill="#ffb057"/>
+                    <path d="M6 28 h96 l8 4 -6 15 H14 l-9 -13 Z" fill="url(#scoHull)"/>
+                    <path d="M6 28 h96 l8 4 -1.4 3.4 H9 Z" fill="#31465f" opacity=".5"/>
+                    <g fill="#ffcf8f" opacity=".9">
+                        <circle cx="22" cy="36" r="1"/><circle cx="38" cy="36" r="1"/><circle cx="54" cy="36" r="1"/><circle cx="70" cy="36" r="1"/><circle cx="86" cy="36" r="1"/>
+                    </g>
+                </svg>
+            </div>
+            </div>
+
+            <!-- layered sea + waves -->
+            <div class="sco-sea">
+                <svg class="sco-wave sco-wave-1" viewBox="0 0 560 24" preserveAspectRatio="none">
+                    <path d="M0 12 Q 35 4 70 12 T 140 12 T 210 12 T 280 12 T 350 12 T 420 12 T 490 12 T 560 12 V24 H0 Z" fill="#28405e"/>
+                </svg>
+                <svg class="sco-wave sco-wave-2" viewBox="0 0 560 24" preserveAspectRatio="none">
+                    <path d="M0 14 Q 45 6 90 14 T 180 14 T 270 14 T 360 14 T 450 14 T 560 14 V24 H0 Z" fill="#152a45"/>
+                </svg>
+            </div>
+        </div>
+
+        <!-- ── Stats row ── -->
+        <div class="sco-stats">
+            <div class="sco-stat">
+                <span class="sco-stat-label">Vessels found</span>
+                <span class="sco-stat-value" id="scoRows">0</span>
+            </div>
+            <div class="sco-stat">
+                <span class="sco-stat-label">Work completed</span>
+                <span class="sco-stat-value" id="scoSources">—</span>
+            </div>
+            <div class="sco-stat">
+                <span class="sco-stat-label">Elapsed</span>
+                <span class="sco-stat-value" id="scoElapsed">0:00</span>
+            </div>
+        </div>
+        <div class="sco-detail" id="scoDetail"></div>
+
+        <div class="sco-foot">
+            <span class="text-muted small">Scraping every active source URL — the scrape runs on the server, so it keeps going even if you close this overlay.</span>
+            <button type="button" class="btn btn-sm btn-outline-light flex-shrink-0" id="scoMinBtn"
+                    onclick="scoMinimize()" title="Hide this overlay and keep working — a small progress pill stays in the corner">
+                <i class="bi bi-arrows-angle-contract"></i> Run in background
+            </button>
+        </div>
+    </div>
+</div>
+
+@* Minimized progress pill — shown after "Run in background" (or when the page
+   is opened while a scrape is already running). Click to re-open the overlay;
+   when the scrape finishes in the background it turns green — click to refresh. *@
+<button type="button" id="scoPill" class="sco-pill d-none" onclick="scoPillClick()"
+        title="Click to view the fetch progress">
+    <span class="spinner-border spinner-border-sm" id="scoPillSpin" aria-hidden="true"></span>
+    <span id="scoPillText">Fetching data…</span>
+    <span class="sco-pill-pct" id="scoPillPct">0%</span>
+</button>
 
 @section Scripts {
     <script>
@@ -200,29 +387,208 @@
                     : confirm('No rows are selected — save ALL your non-useless, IMO-matched rows of @d.ToString("yyyy-MM-dd") into the date-wise history?');
             }
 
-                // "Load Data": confirm, then lock the button while the Python scraper runs on the server
-                function startLoadData(form) {
-                    // pull the CURRENT filter values (textbox date + country dropdown)
-                    const selDate = (document.getElementById("filterDate") || {}).value || '';
-                    const selCountry = (document.getElementById("filterCountry") || {}).value || '';
+        /* ═══════════ "Fetch Data" — AJAX start + live progress/ETA overlay ═══════════
+           1. POST LoadDataStart (returns immediately; scrape runs server-side).
+           2. Poll LoadDataProgress every 2s → real percentage (sources completed)
+              + smoothed estimated time remaining.
+           3. The overlay's ship sails along the route in step with the percentage;
+              on completion it "docks" at 100% and the page reloads with the
+              current filters, where the result banner appears.                     */
+        const sco = {
+            overlay: document.getElementById('scrapeOverlay'),
+            pct: document.getElementById('scoPct'),
+            phase: document.getElementById('scoPhase'),
+            rows: document.getElementById('scoRows'),
+            sources: document.getElementById('scoSources'),
+            elapsed: document.getElementById('scoElapsed'),
+            detail: document.getElementById('scoDetail'),
+            fill: document.getElementById('scoRouteFill'),
+            shipSlot: document.getElementById('scoShipSlot'),
+            pill: document.getElementById('scoPill'),
+            pillText: document.getElementById('scoPillText'),
+            pillPct: document.getElementById('scoPillPct'),
+            pillSpin: document.getElementById('scoPillSpin'),
+            timer: null, raf: null,
+            shown: 0, target: 0,          // displayed % eases toward target %
+            startedAt: null, ended: false,
+            minimized: false,             // "Run in background" mode
+            finishedInBg: null            // final payload when it completed minimized
+        };
+        const scoForm = document.getElementById('loadDataForm');
+        const scoUrls = scoForm ? { start: scoForm.dataset.startUrl, progress: scoForm.dataset.progressUrl } : null;
 
-                    // push them into this form's hidden fields so the scrape uses them
-                    document.getElementById("loadDate").value = selDate;
-                    document.getElementById("loadCountry").value = selCountry;
+        function startLoadData(form) {
+            // pull the CURRENT filter values (textbox date + country dropdown)
+            const selDate = (document.getElementById("filterDate") || {}).value || '';
+            const selCountry = (document.getElementById("filterCountry") || {}).value || '';
+            document.getElementById("loadDate").value = selDate;
+            document.getElementById("loadCountry").value = selCountry;
 
-                    // if (!confirm("Load Data?"))
-                    //     return false;
+            if (!confirm('Load Data will scrape ALL active source URLs from Ports Setup → Data Sources' +
+                         (selCountry ? ' (country: ' + selCountry + ')' : '') +
+                         ' for import date ' + selDate +
+                         '.\n\nThis can take several minutes. Continue?'))
+                return false;
 
-                    if (!confirm('Load Data will scrape ALL active source URLs from Ports Setup → Data Sources' +
-                                 (selCountry ? ' (country: ' + selCountry + ')' : '') +
-                                 ' for import date ' + selDate +
-                                 '.\n\nThis can take several minutes. Continue?'))
-                        return false;
-                    const btn = document.getElementById('loadDataBtn');
-                    btn.disabled = true;
-                    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Scraping… please wait';
-                    return true;
-                }
+            const btn = document.getElementById('loadDataBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Scraping…';
+
+            fetch(scoUrls.start, { method: 'POST', body: new FormData(form) })
+                .then(r => r.json())
+                .then(j => {
+                    if (!j.ok) {
+                        alert(j.message || 'Could not start the scrape.');
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="bi bi-globe"></i> Fetch Data';
+                        return;
+                    }
+                    scoOpen();
+                })
+                .catch(() => {
+                    alert('Could not reach the server to start the scrape.');
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="bi bi-globe"></i> Fetch Data';
+                });
+            return false;   // never do the classic blocking POST when JS works
+        }
+
+        function scoOpen(minimized) {
+            sco.shown = 0; sco.target = 0; sco.ended = false;
+            sco.finishedInBg = null;
+            sco.startedAt = Date.now();
+            if (minimized) scoShowPill(); else scoShowOverlay();
+            scoPoll();
+            sco.timer = setInterval(scoPoll, 2000);
+            sco.raf = requestAnimationFrame(scoAnimate);
+        }
+
+        function scoShowOverlay() {
+            sco.minimized = false;
+            sco.pill.classList.add('d-none');
+            // lock the page behind the overlay (prevents a scrollable white
+            // gutter peeking around the fixed backdrop on long pages)
+            document.documentElement.style.overflow = 'hidden';
+            document.body.style.overflow = 'hidden';
+            sco.overlay.classList.remove('d-none');
+            requestAnimationFrame(() => sco.overlay.classList.add('sco-visible'));
+        }
+
+        function scoShowPill() {
+            sco.minimized = true;
+            sco.overlay.classList.remove('sco-visible');
+            sco.overlay.classList.add('d-none');
+            document.documentElement.style.overflow = '';
+            document.body.style.overflow = '';
+            sco.pill.classList.remove('d-none');
+        }
+
+        // "Run in background" — hide the overlay, keep polling, show the pill.
+        function scoMinimize() {
+            if (sco.ended) return;
+            scoShowPill();
+        }
+
+        // Pill click: while running → re-open the overlay to check progress;
+        // after a background finish → reload the page with the current filters.
+        function scoPillClick() {
+            if (sco.finishedInBg) { scoGoToResults(); return; }
+            scoShowOverlay();
+        }
+
+        function scoGoToResults() {
+            const d = (document.getElementById('loadDate') || {}).value || '';
+            const c = (document.getElementById('loadCountry') || {}).value || '';
+            location.href = '@Url.Action("Index")' + '?date=' + encodeURIComponent(d) + '&country=' + encodeURIComponent(c);
+        }
+
+        function scoPoll() {
+            fetch(scoUrls.progress, { cache: 'no-store' })
+                .then(r => r.json())
+                .then(p => {
+                    if (p.running) {
+                        sco.target = Math.max(sco.target, p.percent || 0);
+                        sco.phase.textContent = p.phase || 'Scraping…';
+                        sco.rows.textContent = (p.rowsFound || 0).toLocaleString();
+                        sco.sources.textContent = p.sourcesTotal > 0 ? (p.sourcesDone + ' of ' + p.sourcesTotal) : '—';
+                        sco.detail.textContent = p.siteDetail || '';
+                        sco.pillText.textContent = (p.rowsFound || 0) > 0
+                            ? 'Fetching — ' + p.rowsFound.toLocaleString() + ' vessel(s) found'
+                            : (p.phase || 'Fetching data…');
+                        if (p.elapsedSeconds != null) sco.startedAt = Date.now() - p.elapsedSeconds * 1000;
+                    } else if (p.done) {
+                        scoFinish(p);
+                    }
+                    // (!running && !done → job not found, e.g. app restarted: keep waiting one
+                    //  more poll, then bail out gracefully)
+                    else if (!sco.ended) {
+                        sco.ended = true;
+                        setTimeout(() => location.reload(), 2500);
+                    }
+                })
+                .catch(() => { /* transient network hiccup — next poll retries */ });
+        }
+
+        function scoFinish(p) {
+            if (sco.ended) return;
+            sco.ended = true;
+            clearInterval(sco.timer);
+            sco.target = 100;
+            sco.phase.textContent = p.ok ? 'Docked — data imported!' : 'Scrape finished with errors';
+            if (p.rowsFound > 0) sco.rows.textContent = (p.rowsFound).toLocaleString();
+            if (p.inserted > 0) sco.detail.textContent = p.inserted + ' row(s) imported';
+
+            if (sco.minimized) {
+                // Finished while running in the background: don't yank the page
+                // away — turn the pill green (or red) and let the user click it
+                // to reload with the current filters when they're ready.
+                sco.finishedInBg = p;
+                sco.pillSpin.classList.add('d-none');
+                sco.pill.classList.add(p.ok ? 'sco-pill-done' : 'sco-pill-error');
+                sco.pillPct.textContent = '';
+                sco.pillText.innerHTML = p.ok
+                    ? '<i class="bi bi-check-circle"></i> Fetch complete' +
+                      (p.inserted > 0 ? ' — ' + p.inserted + ' row(s) imported' : '') + ' · click to refresh'
+                    : '<i class="bi bi-exclamation-triangle"></i> Fetch finished with errors · click for details';
+                return;
+            }
+
+            // Overlay visible: let the ship reach the destination port, then
+            // reload with the filters.
+            setTimeout(scoGoToResults, 1600);
+        }
+
+        // Smoothly ease the displayed % toward the polled target — number, route
+        // fill and ship position all move together, so the ship never teleports.
+        function scoAnimate() {
+            sco.shown += (sco.target - sco.shown) * 0.06;
+            if (sco.target - sco.shown < 0.05) sco.shown = sco.target;
+            const p = Math.min(100, Math.max(0, sco.shown));
+            sco.pct.innerHTML = Math.floor(p) + '<small>%</small>';
+            sco.fill.style.width = p + '%';
+            sco.shipSlot.style.left = p + '%';
+            if (!sco.finishedInBg) sco.pillPct.textContent = Math.floor(p) + '%';
+            if (sco.startedAt && !sco.ended) {
+                const s = Math.floor((Date.now() - sco.startedAt) / 1000);
+                sco.elapsed.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+            }
+            sco.raf = requestAnimationFrame(scoAnimate);
+        }
+
+        // If the page is opened/refreshed while a scrape is already running
+        // (e.g. after "Run in background" + F5, or navigating back to this page),
+        // re-attach in BACKGROUND mode: the small progress pill appears in the
+        // corner and clicking it re-opens the full overlay to check progress.
+        @if ((bool?)ViewBag.ScrapeRunning == true)
+        {
+        <text>
+        (function () {
+            const btn = document.getElementById('loadDataBtn');
+            if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Scraping…'; }
+            scoOpen(true);
+        })();
+        </text>
+        }
 
                 // V2 "Useless" button — real-time red highlight, no page reload, IMO added to global ignore list
                 $(document).on('click', '.useless-btn', function () {

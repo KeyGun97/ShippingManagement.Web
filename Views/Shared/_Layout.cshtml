@@ -12,15 +12,15 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>@ViewData["Title"] — Shipping Management System</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+    <title>@ViewData["Title"] — World Ship Chandler</title>
+    @* Fonts are system-installed (Georgia / Segoe UI), so no webfont is fetched.
+       This also keeps the UI correct on a VPS with no outbound internet access. *@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" />
     <link href="~/css/site.css" rel="stylesheet" asp-append-version="true" />
 </head>
 <body>
+<div class="orbs" aria-hidden="true"><span></span><span></span><span></span></div>
 @if (loggedIn)
 {
     <nav class="navbar navbar-dark topbar px-3">
@@ -28,7 +28,21 @@
             <button class="nav-toggle" id="sidebarToggle" type="button" aria-label="Toggle menu">
                 <i class="bi bi-list"></i>
             </button>
-            <span class="navbar-brand fw-bold mb-0"><i class="bi bi-anchor me-2"></i>Shipping Management System</span>
+            <span class="navbar-brand fw-bold mb-0">
+                <span class="brand-logo me-2" aria-hidden="true">
+                    <svg viewBox="0 0 64 64" width="22" height="22" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round">
+                        <circle cx="32" cy="32" r="15.5" />
+                        <line x1="32" y1="8" x2="32" y2="56" />
+                        <line x1="8" y1="32" x2="56" y2="32" />
+                        <line x1="15" y1="15" x2="49" y2="49" />
+                        <line x1="49" y1="15" x2="15" y2="49" />
+                        <circle cx="32" cy="32" r="6" fill="currentColor" stroke="none" />
+                    </svg>
+                </span>
+                    <span class ="lg-brand-text">
+                        <strong>World Ship Chandler</strong>
+                    </span>
+            </span>
         </div>
         <div class="d-flex align-items-center text-white gap-3">
             <span class="user-name"><i class="bi bi-person-circle me-1"></i>@fullName <span class="badge bg-info ms-1">@role</span></span>
@@ -52,7 +66,7 @@
             <a class="nav-link @Active("RegularCustomers")" href="/RegularCustomers"><i class="bi bi-star-fill"></i> Regular Customers</a>
             <a class="nav-link @Active("MasterData")" href="/MasterData"><i class="bi bi-database"></i> Master Data</a>
             <a class="nav-link @Active("AutoEmails")" href="/AutoEmails"><i class="bi bi-envelope-paper"></i> Auto Emails</a>
-            <a class="nav-link @Active("EmailTemplates")" href="/EmailTemplates"><i class="bi bi-envelope-paper-heart"></i> Email Templates</a>
+            <a class="nav-link @Active("EmailTemplates")" href="/EmailTemplates"><i class="bi bi-envelope-open"></i> Email Templates</a>
             @if (isAdmin)
             {
                 <hr class="text-secondary my-2" />

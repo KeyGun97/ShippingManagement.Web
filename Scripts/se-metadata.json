@@ -1,0 +1,29 @@
+{
+  "browsers": [],
+  "drivers": [
+    {
+      "major_browser_version": "150",
+      "driver_name": "chromedriver",
+      "driver_version": "150.0.7871.124",
+      "driver_ttl": 1784210687
+    }
+  ],
+  "stats": [
+    {
+      "browser": "chrome",
+      "browser_version": "",
+      "os": "windows",
+      "arch": "x86_64",
+      "lang": "python",
+      "selenium_version": "4.46",
+      "stats_ttl": 1784210686
+    }
+  ],
+  "cached_assets": [
+    {
+      "asset_name": "chromedriver",
+      "asset_version": "150.0.7871.124",
+      "last_used": 1784207087
+    }
+  ]
+}
