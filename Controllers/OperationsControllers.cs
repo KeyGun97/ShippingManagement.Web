@@ -13,7 +13,6 @@ namespace ShippingManagement.Web.Controllers
     {
         private readonly ShippingRepository _repo;
         public PortsSetupController(ShippingRepository repo) => _repo = repo;
-
         public IActionResult Index(int? countryId)
         {
             ViewBag.Countries = _repo.GetCountries().ToList();
@@ -335,6 +334,8 @@ namespace ShippingManagement.Web.Controllers
     {
         private readonly ShippingRepository _repo;
         private readonly ExportService _export;
+
+        public bool export = true;
         public DailyReportController(ShippingRepository repo, ExportService export)
         { _repo = repo; _export = export; }
 
@@ -491,14 +492,14 @@ namespace ShippingManagement.Web.Controllers
         public IActionResult ExportSingle(DateTime dateFrom, DateTime? dateTo, string? country)
         {
             var (f, t) = Range(dateFrom, dateTo);
-            var rows = _repo.GetArrivals(null, NullIfEmpty(country), excludeTagged: true, dateFrom: f, dateTo: t).ToList();
+            var rows = _repo.GetArrivals(null, NullIfEmpty(country), excludeTagged: true, dateFrom: f, dateTo: t,export:true).ToList();
             return Xlsx(_export.DailyReportSingleSheet(rows), $"DailyReport_{Stamp(f, t)}.xlsx");
         }
 
         public IActionResult ExportTwoSheets(DateTime dateFrom, DateTime? dateTo, string? country)
         {
             var (f, t) = Range(dateFrom, dateTo);
-            var rows = _repo.GetArrivals(null, NullIfEmpty(country), excludeTagged: true, dateFrom: f, dateTo: t).ToList();
+            var rows = _repo.GetArrivals(null, NullIfEmpty(country), excludeTagged: true, dateFrom: f, dateTo: t, export: true).ToList();
             return Xlsx(_export.DailyReportTwoSheets(rows), $"DailyReport_AsiaSplit_{Stamp(f, t)}.xlsx");
         }
 
@@ -506,14 +507,14 @@ namespace ShippingManagement.Web.Controllers
         public IActionResult ExportPortWise(DateTime dateFrom, DateTime? dateTo, string? country)
         {
             var (f, t) = Range(dateFrom, dateTo);
-            var rows = _repo.GetArrivals(null, NullIfEmpty(country), excludeTagged: true, dateFrom: f, dateTo: t).ToList();
+            var rows = _repo.GetArrivals(null, NullIfEmpty(country), excludeTagged: true, dateFrom: f, dateTo: t, export: true).ToList();
             return Xlsx(_export.PortWiseExcel(rows), $"PortWise_{Stamp(f, t)}.xlsx");
         }
 
         public IActionResult ExportPortWiseCsv(DateTime dateFrom, DateTime? dateTo, string? country)
         {
             var (f, t) = Range(dateFrom, dateTo);
-            var rows = _repo.GetArrivals(null, NullIfEmpty(country), excludeTagged: true, dateFrom: f, dateTo: t)
+            var rows = _repo.GetArrivals(null, NullIfEmpty(country), excludeTagged: true, dateFrom: f, dateTo: t, export: true)
                             .OrderBy(r => r.PortName).ToList();
             return File(System.Text.Encoding.UTF8.GetBytes(_export.ArrivalsCsv(rows)),
                         "text/csv", $"PortWise_{Stamp(f, t)}.csv");
@@ -524,7 +525,7 @@ namespace ShippingManagement.Web.Controllers
         {
             var (f, t) = Range(dateFrom, dateTo);
             ViewBag.DateFrom = f; ViewBag.DateTo = t; ViewBag.Country = country;
-            var rows = _repo.GetArrivals(null, NullIfEmpty(country), excludeTagged: true, dateFrom: f, dateTo: t)
+            var rows = _repo.GetArrivals(null, NullIfEmpty(country), excludeTagged: true, dateFrom: f, dateTo: t, export: true)
                             .OrderBy(r => r.PortName).ToList();
             return View("Print", rows);
         }
@@ -532,7 +533,7 @@ namespace ShippingManagement.Web.Controllers
         public IActionResult ExportCsv(DateTime dateFrom, DateTime? dateTo, string? country)
         {
             var (f, t) = Range(dateFrom, dateTo);
-            var rows = _repo.GetArrivals(null, NullIfEmpty(country), excludeTagged: true, dateFrom: f, dateTo: t).ToList();
+            var rows = _repo.GetArrivals(null, NullIfEmpty(country), excludeTagged: true, dateFrom: f, dateTo: t, export: true).ToList();
             return File(System.Text.Encoding.UTF8.GetBytes(_export.ArrivalsCsv(rows)),
                         "text/csv", $"DailyReport_{Stamp(f, t)}.csv");
         }
@@ -542,7 +543,7 @@ namespace ShippingManagement.Web.Controllers
         {
             var (f, t) = Range(dateFrom, dateTo);
             ViewBag.DateFrom = f; ViewBag.DateTo = t; ViewBag.Country = country;
-            return View(_repo.GetArrivals(null, NullIfEmpty(country), excludeTagged: true, dateFrom: f, dateTo: t).ToList());
+            return View(_repo.GetArrivals(null, NullIfEmpty(country), excludeTagged: true, dateFrom: f, dateTo: t, export: true).ToList());
         }
 
         private static (DateTime from, DateTime to) Range(DateTime from, DateTime? to)

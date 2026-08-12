@@ -4,6 +4,7 @@ using Microsoft.Data.SqlClient;
 using ShippingManagement.Web.Models;
 using System.Data;
 using System.Diagnostics.Metrics;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace ShippingManagement.Web.Data
 {
@@ -806,24 +807,13 @@ namespace ShippingManagement.Web.Data
         //Change this is ShippingRepository-> GetArrivals
         public IEnumerable<ArrivalLog> GetArrivals(DateTime? date, string? country, bool excludeTagged = false,
                                                    string? search = null, bool regularOnly = false, string? portName = null,
-                                                   DateTime? dateFrom = null, DateTime? dateTo = null)
+                                                   DateTime? dateFrom = null, DateTime? dateTo = null, bool? export=false)
         {
             // @date keeps the original single-day behaviour for existing callers.
             // @dateFrom / @dateTo enable an (inclusive) date-range search for the Daily Report.
             // The upper bound is exclusive-next-midnight rather than "<= @dateTo" so the
             // range stays correct even if ArrivalDate ever carries a time component —
             // "<= 2026-07-24" would silently drop every row stamped later that day.
-            //const string sql = @"
-            //    SELECT * FROM vw_ArrivalDetail
-            //    WHERE (@date IS NULL OR ArrivalDate = @date)
-            //      AND (@dateFrom IS NULL OR ArrivalDate >= @dateFrom)
-            //      AND (@dateTo IS NULL OR ArrivalDate < DATEADD(day, 1, @dateTo))
-            //      AND (@country IS NULL OR LTRIM(RTRIM(Country)) = LTRIM(RTRIM(@country)))
-            //      AND (@portName IS NULL OR PortName = @portName)
-            //      AND (@exclTagged = 0 OR IsTagged = 0)
-            //      AND (@search IS NULL OR VesselName LIKE @like OR IMO_Number LIKE @like OR CompanyName LIKE @like)
-            //      AND (@regOnly = 0 OR CustomerStatus = 'Regular')
-            //    ORDER BY ArrivalDate, CompanyName, VesselName";
             const string sql = @"WITH InRange AS (
                             SELECT *,
                                    COUNT(*) OVER (PARTITION BY IMO_Number) AS OccurrenceCount
@@ -841,7 +831,7 @@ namespace ShippingManagement.Web.Data
                             WHERE  OccurrenceCount = 1 AND (@date IS NULL OR ArrivalDate = @date)
                             ORDER BY ArrivalDate, VesselName";
             using var c = Conn();
-            return c.Query<ArrivalLog>(sql, new
+            var result = c.Query<ArrivalLog>(sql, new
             {
                 date = dateTo?.Date,
                 dateFrom = dateFrom?.Date,
@@ -853,7 +843,20 @@ namespace ShippingManagement.Web.Data
                 like = $" %{search}%",
                 regOnly = regularOnly ? 1 : 0
             });
+            if (export == true && (dateTo!=dateFrom))
+            {
+                List<string> imoNumbers = result
+                   .Where(x => !string.IsNullOrEmpty(x.IMO_Number))
+                   .Select(x => x.IMO_Number!)
+                   .ToList();
+                if (imoNumbers.Count > 0 && dateTo.HasValue)
+                { 
+                    FilterData(dateTo?.Date, imoNumbers,country,portName, excludeTagged); 
+                }
+            }
+            return result;
         }
+       
         public IEnumerable<ArrivalLog> GetVesselHistory(string imo)
         {
             using var c = Conn();
@@ -1002,5 +1005,28 @@ namespace ShippingManagement.Web.Data
             const string sql = @"delete from ScrapedData  where ImportDate <= @prevDate";
             conn.Execute(sql, new { prevDate });
         }
+        public void FilterData(DateTime? dateto, List<string> imos, string? country, string? portName, bool? excludeTagged = false)
+        {
+            using var conn = new SqlConnection(_cs);
+
+            const string sql = @"
+                    DELETE FROM ArrivalLog
+                    WHERE ArrivalDate = @dateto
+                      AND IMO_Number NOT IN @imos 
+                       AND (@country IS NULL OR LTRIM(RTRIM(Country)) = LTRIM(RTRIM(@country)))
+                                      AND (@portName IS NULL OR PortName = @portName)
+                                      AND (@exclTagged = 0 OR IsTagged = 0)";
+
+            conn.Execute(sql, new
+            {
+                dateto,
+                imos,
+                country,
+                portName,
+                exclTagged = (bool)excludeTagged ? 1 : 0
+                
+            });
+        }
+
     }
 }
