@@ -1024,7 +1024,6 @@ namespace ShippingManagement.Web.Data
                 country,
                 portName,
                 exclTagged = (bool)excludeTagged ? 1 : 0
-                
             });
         }
 
