@@ -37,10 +37,12 @@ namespace ShippingManagement.Web.Services
                 return new(false, "No active data-source URLs found. Add them in Ports Setup → Sources.", 0, 0);
 
             // Split the active sources by which website they belong to. A source is
-            // treated as VesselTracker when its name or URL mentions "vesseltracker";
+            // treated as VesselTracker when its name or URL mentions "vesseltracker",
+            // as MarineVesselTraffic when it mentions "marinevesseltraffic";
             // everything else goes to the MyShipTracking (paginated) scraper.
             var vtSources = sources.Where(IsVesselTracker).ToList();
-            var mstSources = sources.Where(s => !IsVesselTracker(s)).ToList();
+            var mvtSources = sources.Where(IsMarineVesselTraffic).ToList();
+            var mstSources = sources.Where(s => !IsVesselTracker(s) && !IsMarineVesselTraffic(s)).ToList();
 
             // ETA window (days). Rows whose arrival/ETA is more than this many days
             // in the future are dropped by the scraper. Configurable via
@@ -51,12 +53,18 @@ namespace ShippingManagement.Web.Services
             // than the paginated MyShipTracking scrape — give it its own budget.
             int vtTimeoutMin = int.TryParse(_cfg["Scraper:VesselTrackerTimeoutMinutes"], out var vtt) && vtt > 0
                                ? vtt : Math.Max(timeoutMin, 60);
+            // MarineVesselTraffic also logs in and walks every pagination page of
+            // every port's EXPECTED tab, so give it a VesselTracker-sized budget.
+            int mvtTimeoutMin = int.TryParse(_cfg["Scraper:MarineVesselTrafficTimeoutMinutes"], out var mvtt) && mvtt > 0
+                                ? mvtt : Math.Max(timeoutMin, 60);
 
             // Concurrency per site. MyShipTracking opens one browser process per
             // worker (heavier); VesselTracker shares one browser and opens a tab per
             // worker (lighter), so it defaults lower.
             int mstWorkers = int.TryParse(_cfg["Scraper:MaxWorkers"], out var mw) && mw > 0 ? mw : 8;
             int vtWorkers = int.TryParse(_cfg["Scraper:VesselTrackerWorkers"], out var vw) && vw > 0 ? vw : 2;
+            // MarineVesselTraffic shares one browser and opens a tab per worker (light).
+            int mvtWorkers = int.TryParse(_cfg["Scraper:MarineVesselTrafficWorkers"], out var mvw) && mvw > 0 ? mvw : 2;
 
             // ── Everything lives in a fixed folder inside the project (NOT temp), with
             //    fixed filenames so each run overwrites the previous one. Configurable
@@ -73,24 +81,31 @@ namespace ShippingManagement.Web.Services
 
             string mstConfigPath = Path.Combine(dataDir, "config_myshiptracking.json");
             string vtConfigPath = Path.Combine(dataDir, "config_vesseltracker.json");
+            string mvtConfigPath = Path.Combine(dataDir, "config_marinevesseltraffic.json");
             string mstOutputPath = Path.Combine(dataDir, "output_myshiptracking.json");
             string vtOutputPath = Path.Combine(dataDir, "output_vesseltracker.json");
+            string mvtOutputPath = Path.Combine(dataDir, "output_marinevesseltraffic.json");
             string mergedPath = Path.Combine(dataDir, "results.json");   // single file → scraped table
 
             // 1 — write a config file per website (each filtered to its own sources).
             WriteConfig(mstConfigPath, maxDays, mstWorkers, mstSources);
             WriteConfig(vtConfigPath, maxDays, vtWorkers, vtSources);
+            WriteConfig(mvtConfigPath, maxDays, mvtWorkers, mvtSources);
 
             // Resolve python + both script paths.
             string python = Val(_cfg["Scraper:PythonPath"], "python");
             string? mstScript = ResolveScript(_cfg["Scraper:ScriptPath"], "scraper.py");
             string? vtScript = ResolveScript(_cfg["Scraper:VesselTrackerScriptPath"], "vesseltracker_scraper.py");
+            string? mvtScript = ResolveScript(_cfg["Scraper:MarineVesselTrafficScriptPath"], "marinevesseltraffic_scraper.py");
 
             if (mstSources.Count > 0 && mstScript is null)
                 return new(false, "MyShipTracking script (Scripts/scraper.py) not found. " +
                     "Ensure it exists and is set to Copy to Output Directory.", 0, sources.Count);
             if (vtSources.Count > 0 && vtScript is null)
                 return new(false, "VesselTracker script (Scripts/vesseltracker_scraper.py) not found. " +
+                    "Ensure it exists and is set to Copy to Output Directory.", 0, sources.Count);
+            if (mvtSources.Count > 0 && mvtScript is null)
+                return new(false, "MarineVesselTraffic script (Scripts/marinevesseltraffic_scraper.py) not found. " +
                     "Ensure it exists and is set to Copy to Output Directory.", 0, sources.Count);
 
             // 2 — launch BOTH scripts in parallel, each writing its own output file.
@@ -123,6 +138,41 @@ namespace ShippingManagement.Web.Services
                 return new(false, $"Could not start Python ('{python}'). Install Python and the scraper " +
                                   $"dependencies, or fix Scraper:PythonPath in appsettings.json. Error: {ex.Message}",
                                   0, sources.Count);
+            }
+
+            // 2b — STAGE 2: MarineVesselTraffic runs ONLY AFTER MyShipTracking and
+            //      VesselTracker have both finished (by design — it's the follow-up
+            //      pass, and running it afterwards also keeps the peak browser count
+            //      down). Its rows then join the same merge below.
+            if (mvtSources.Count > 0)
+            {
+                _progress.SetPhase($"Scraping MarineVesselTraffic ({mvtSources.Count} source(s))");
+                // Pass the site login (appsettings → Scraper:MvtEmail/MvtPassword)
+                // to the script as env vars; machine-wide MVT_EMAIL/MVT_PASSWORD
+                // env vars still work when these keys are left empty.
+                var mvtEnv = new Dictionary<string, string>();
+                if (!string.IsNullOrWhiteSpace(_cfg["Scraper:MvtEmail"]))
+                    mvtEnv["MVT_EMAIL"] = _cfg["Scraper:MvtEmail"]!.Trim();
+                if (!string.IsNullOrWhiteSpace(_cfg["Scraper:MvtPassword"]))
+                    mvtEnv["MVT_PASSWORD"] = _cfg["Scraper:MvtPassword"]!.Trim();
+
+                // Cloudflare on this site rarely clears for a headless browser, so
+                // MVT runs HEADED by default — but with the window parked OFF-SCREEN,
+                // so nothing appears on the desktop during a scrape.
+                // Scraper:MvtHeadless=true  -> true headless (low pass rate)
+                // Scraper:MvtVisible=true   -> show the window (only needed for the
+                //                              one-off run where a Cloudflare
+                //                              checkbox has to be ticked by hand)
+                bool mvtHeadless = bool.TryParse(_cfg["Scraper:MvtHeadless"], out var mh) && mh;
+                bool mvtVisible = bool.TryParse(_cfg["Scraper:MvtVisible"], out var mv) && mv;
+                mvtEnv["SCRAPER_FORCE_HEADLESS"] = mvtHeadless ? "1" : "0";   // overrides the default "1"
+                mvtEnv["SCRAPER_MVT_VISIBLE"] = mvtVisible ? "1" : "0";
+
+                var mvtRun = RunScraper("MarineVesselTraffic", python, mvtScript!,
+                                        mvtConfigPath, mvtOutputPath, mvtTimeoutMin, cpuLimiter,
+                                        extraArgs: mvtHeadless ? new[] { "--headless" } : null,
+                                        extraEnv: mvtEnv);
+                outcomes = outcomes.Append(mvtRun).ToArray();
             }
 
             // 3 — merge each successful scraper's output into ONE combined list, then
@@ -243,7 +293,9 @@ namespace ShippingManagement.Web.Services
                     siteBits.Add($"{run.Site} FAILED: {Truncate(run.Error, 250)}");
                 else if (run.Rows.Count == 0)
                     siteBits.Add($"{run.Site}: 0 rows — check ScraperData\\output_" +
-                                 (run.Site == "VesselTracker" ? "vesseltracker" : "myshiptracking") +
+                                 (run.Site == "VesselTracker" ? "vesseltracker"
+                                  : run.Site == "MarineVesselTraffic" ? "marinevesseltraffic"
+                                  : "myshiptracking") +
                                  ".log and the ScraperData\\debug folder");
                 else
                     siteBits.Add($"{run.Site}: {run.Rows.Count} rows");
@@ -270,6 +322,11 @@ namespace ShippingManagement.Web.Services
         private static bool IsVesselTracker(ScrapeSourceInfo s) =>
             (s.SourceName?.Replace(" ", "").Contains("vesseltracker", StringComparison.OrdinalIgnoreCase) ?? false)
             || (s.Url?.Contains("vesseltracker", StringComparison.OrdinalIgnoreCase) ?? false);
+
+        /// <summary>True when a source belongs to MarineVesselTraffic (by source name or URL).</summary>
+        private static bool IsMarineVesselTraffic(ScrapeSourceInfo s) =>
+            (s.SourceName?.Replace(" ", "").Contains("marinevesseltraffic", StringComparison.OrdinalIgnoreCase) ?? false)
+            || (s.Url?.Contains("marinevesseltraffic", StringComparison.OrdinalIgnoreCase) ?? false);
 
         /// <summary>Write one per-site config file (overwrites any existing one).</summary>
         private static void WriteConfig(string path, int maxDays, int maxWorkers, List<ScrapeSourceInfo> sources)
@@ -323,7 +380,8 @@ namespace ShippingManagement.Web.Services
         private ScraperRun RunScraper(string site, string python, string script,
                                       string configPath, string outputPath, int timeoutMin,
                                       ScraperCpuLimiter cpuLimiter,
-                                      string[]? extraArgs = null)
+                                      string[]? extraArgs = null,
+                                      IDictionary<string, string>? extraEnv = null)
         {
             var psi = new ProcessStartInfo
             {
@@ -351,6 +409,8 @@ namespace ShippingManagement.Web.Services
             // This overrides any machine-wide headful setting for THIS process.
             psi.EnvironmentVariables["SCRAPER_FORCE_HEADLESS"] = "1";
             psi.EnvironmentVariables["SCRAPER_HEADFUL"] = "0";
+            foreach (var kv in extraEnv ?? new Dictionary<string, string>())
+                psi.EnvironmentVariables[kv.Key] = kv.Value;
 
             string stderr;
             try

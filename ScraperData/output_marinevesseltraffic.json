@@ -1,0 +1,62 @@
+[
+    {
+        "VesselName": "HMM LIME",
+        "IMO_Number": "9998511",
+        "VesselType": "Container Ship",
+        "Origin": "ALGECIRAS",
+        "VesselStatus": null,
+        "ArrivalDate": "Aug 20, 00:00",
+        "PortID": 2,
+        "PortName": "Karachi",
+        "Country": "Pakistan",
+        "DataSource": "MarineVesselTraffic"
+    },
+    {
+        "VesselName": "SKY LOVER",
+        "IMO_Number": "9325398",
+        "VesselType": "General Cargo Ship",
+        "Origin": "KOBE",
+        "VesselStatus": null,
+        "ArrivalDate": "Aug 20, 08:00",
+        "PortID": 2,
+        "PortName": "Karachi",
+        "Country": "Pakistan",
+        "DataSource": "MarineVesselTraffic"
+    },
+    {
+        "VesselName": "GOLDEN GRAND",
+        "IMO_Number": "9488982",
+        "VesselType": "Bulk Carrier",
+        "Origin": null,
+        "VesselStatus": null,
+        "ArrivalDate": "Aug 20, 12:00",
+        "PortID": 2,
+        "PortName": "Karachi",
+        "Country": "Pakistan",
+        "DataSource": "MarineVesselTraffic"
+    },
+    {
+        "VesselName": "KMTC MANILA",
+        "IMO_Number": "9375496",
+        "VesselType": "Container Ship",
+        "Origin": "JAWAHARLAL NEHRU",
+        "VesselStatus": null,
+        "ArrivalDate": "Aug 20, 14:00",
+        "PortID": 2,
+        "PortName": "Karachi",
+        "Country": "Pakistan",
+        "DataSource": "MarineVesselTraffic"
+    },
+    {
+        "VesselName": "WAN HAI 316",
+        "IMO_Number": "9342700",
+        "VesselType": "Container Ship",
+        "Origin": "SHEKOU",
+        "VesselStatus": null,
+        "ArrivalDate": "Aug 24, 12:00",
+        "PortID": 2,
+        "PortName": "Karachi",
+        "Country": "Pakistan",
+        "DataSource": "MarineVesselTraffic"
+    }
+]

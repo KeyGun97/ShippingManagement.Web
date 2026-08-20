@@ -1,0 +1,18 @@
+{
+  "maxDays": 10,
+  "maxWorkers": 2,
+  "sources": [
+    {
+      "sourceId": 4095,
+      "sourceName": "MarineVesselTraffic",
+      "portId": 2,
+      "portName": "Karachi",
+      "country": "Pakistan",
+      "url": "https://www.marinevesseltraffic.com/ships-in-port/KARACHI/pk/type-Port",
+      "pageParamPattern": null,
+      "startPage": 1,
+      "endPage": 10,
+      "maxPages": 10
+    }
+  ]
+}

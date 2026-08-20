@@ -41,6 +41,7 @@ namespace ShippingManagement.Web.Services
         {
             "output_myshiptracking.progress.json",
             "output_vesseltracker.progress.json",
+            "output_marinevesseltraffic.progress.json",
         };
 
         public bool IsRunning { get { lock (_lock) return _running; } }
@@ -153,7 +154,9 @@ namespace ShippingManagement.Web.Services
                 var s = ReadSidecar(Path.Combine(dataDir, f));
                 if (s is null) continue;
                 doneSum += s.Done; totalSum += s.Total; rowsSum += s.Rows;
-                string site = f.Contains("vesseltracker") ? "VesselTracker" : "MyShipTracking";
+                string site = f.Contains("marinevesseltraffic") ? "MarineVesselTraffic"
+                              : f.Contains("vesseltracker") ? "VesselTracker"
+                              : "MyShipTracking";
                 if (s.Total > 0) siteBits.Add($"{site} {s.Done}/{s.Total}");
                 if (!string.IsNullOrWhiteSpace(s.Phase) && s.Done < s.Total)
                     scraperPhase ??= s.Phase;

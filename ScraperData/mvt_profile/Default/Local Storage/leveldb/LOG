@@ -1,0 +1,8 @@
+2026/08/19-15:08:22.291 3c2c Reusing MANIFEST C:\Users\AH.DESKTOP-1KLF1U9\source\repos\ShippingManagementWeb\ShippingManagementWeb\ScraperData\mvt_profile\Default\Local Storage\leveldb/MANIFEST-000001
+2026/08/19-15:08:22.304 3c2c Recovering log #4
+2026/08/19-15:08:22.304 3c2c Level-0 table #6: started
+2026/08/19-15:08:22.754 3c2c Level-0 table #6: 15193 bytes OK
+2026/08/19-15:08:22.755 3c2c Recovering log #6
+2026/08/19-15:08:22.761 3c2c Reusing old log C:\Users\AH.DESKTOP-1KLF1U9\source\repos\ShippingManagementWeb\ShippingManagementWeb\ScraperData\mvt_profile\Default\Local Storage\leveldb/000006.log 
+2026/08/19-15:08:22.980 3c2c Delete type=0 #4
+2026/08/19-15:08:22.980 3c2c Delete type=2 #7
