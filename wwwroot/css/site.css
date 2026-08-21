@@ -885,12 +885,12 @@ main.content { min-width: 0; }
 
 /* Photo slot — drop any port image at wwwroot/img/login-hero.jpg
    and it appears here; without it, the gradient scene shows. */
-.lg-hero-media {
+/*.lg-hero-media {
     position: absolute;
     inset: 0;
     z-index: -3;
     background: url('/img/login-hero.jpg') center / cover no-repeat;
-}
+}*/
 
 .lg-hero-overlay {
     position: absolute;
